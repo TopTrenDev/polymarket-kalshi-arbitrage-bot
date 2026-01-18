@@ -6,6 +6,17 @@ A Rust trading bot for detecting arbitrage opportunities between Polymarket and 
 [![Twitter](https://img.shields.io/badge/Twitter-@toptrendev-1DA1F2?style=for-the-badge&logo=twitter)](https://x.com/toptrendev)
 [![Discord](https://img.shields.io/badge/Discord-toptrendev-5865F2?style=for-the-badge&logo=discord)](https://discord.com/users/648385188774019072)
 
+## ⚠️ Disclaimer
+
+**This is not a complete, production-ready codebase.** This project is continuously being improved and developed. 
+
+- ⚠️ **Do not use directly in production** without thorough testing and review
+- 🔧 **Code is subject to change** - APIs, logic, and structure may be updated
+- 🐛 **May contain bugs or incomplete features** - use at your own risk
+- 📚 **Intended for educational/research purposes** - adapt and test before deploying
+
+**Use this code as a reference or starting point, not as a ready-to-deploy solution.**
+
 ## Structure
 
 ```
@@ -23,7 +34,13 @@ src/
 └── polymarket_blockchain.rs # Polygon blockchain integration
 ```
 
+## Status
+
+🚧 **Work in Progress** - This bot is actively being developed and improved. Features may be incomplete or change.
+
 ## Setup
+
+> **Note**: This setup is for development/testing only. Ensure you understand the code before running with real funds.
 
 1. **Install Rust**:
 
@@ -31,7 +48,7 @@ src/
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
-2. **Configure `.env`**:
+2. **Configure `.env`** (copy from `.env.example`):
 
    ```bash
    POLYGON_RPC_URL=https://polygon-rpc.com
@@ -40,7 +57,7 @@ src/
    KALSHI_API_SECRET=your_secret
    ```
 
-3. **Build & Run**:
+3. **Build & Run** (for testing/development):
    ```bash
    cargo build --release
    cargo run --release
@@ -61,3 +78,7 @@ src/
 | ---------- | -------------- | --------------- | ---------- |
 | Polymarket | Decentralized  | Polygon         | USDC       |
 | Kalshi     | CFTC-regulated | Solana/TRON/BSC | USD/Crypto |
+
+## Contributing
+
+This project is continuously improving. Contributions, suggestions, and bug reports are welcome!
