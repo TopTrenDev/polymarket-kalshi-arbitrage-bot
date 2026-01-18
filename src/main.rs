@@ -3,6 +3,7 @@ use polymarket_kalshi_arbitrage_bot::{
     bot::{MarketFilters, ShortTermArbitrageBot},
     clients::{KalshiClient, PolymarketClient},
     event::MarketPrices,
+    gabagool_executor::GabagoolExecutor,
     position_tracker::PositionTracker,
     settlement_checker::SettlementChecker,
     trade_executor::TradeExecutor,
@@ -73,6 +74,12 @@ async fn main() -> Result<()> {
         .with_position_tracker(position_tracker.clone()),
     );
 
+    // Create Gabagool executor
+    let gabagool_executor = Arc::new(
+        GabagoolExecutor::new(polymarket_client.clone())
+            .with_position_tracker(position_tracker.clone()),
+    );
+
     // Create settlement checker
     let settlement_checker = Arc::new(SettlementChecker::new(
         polymarket_client.clone(),
@@ -114,11 +121,56 @@ async fn main() -> Result<()> {
     };
 
     // Run continuous scanning (every 60 seconds)
-    info!("Starting continuous scanning (interval: 60s)");
+    info!("Starting dual-strategy scanning (interval: 60s)");
+    info!("  Strategy 1: Cross-platform arbitrage (Polymarket ↔ Kalshi)");
+    info!("  Strategy 2: Gabagool hedged arbitrage (Polymarket only)");
     info!("Settlement checking (every 5 minutes)");
     
     let mut scan_interval = tokio::time::interval(Duration::from_secs(60));
     let mut settlement_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+    
+    // Fetch prices function for cross-platform
+    let fetch_prices_cross = {
+        let pm = polymarket_client.clone();
+        let kalshi = kalshi_client.clone();
+        move |event_id: &str, platform: &str| {
+            let event_id = event_id.to_string();
+            let platform = platform.to_string();
+            let pm = pm.clone();
+            let kalshi = kalshi.clone();
+            async move {
+                match platform.as_str() {
+                    "polymarket" => pm.fetch_prices(&event_id).await.unwrap_or_default(),
+                    "kalshi" => kalshi.fetch_prices(&event_id).await.unwrap_or_default(),
+                    _ => MarketPrices::new(0.0, 0.0, 0.0),
+                }
+            }
+        }
+    };
+
+    // Fetch prices function for Gabagool (Polymarket only)
+    let fetch_prices_gabagool = {
+        let pm = polymarket_client.clone();
+        move |event_id: &str| {
+            let event_id = event_id.to_string();
+            let pm = pm.clone();
+            async move {
+                pm.fetch_prices(&event_id).await.unwrap_or_default()
+            }
+        }
+    };
+
+    // Get position balance function for Gabagool
+    let get_position_balance = {
+        let executor = gabagool_executor.clone();
+        move |event_id: &str| {
+            let event_id = event_id.to_string();
+            let executor = executor.clone();
+            async move {
+                executor.get_position_balance(&event_id).await
+            }
+        }
+    };
     
     loop {
         tokio::select! {
@@ -133,22 +185,26 @@ async fn main() -> Result<()> {
         let pm_events = pm_events.unwrap_or_default();
         let kalshi_events = kalshi_events.unwrap_or_default();
         
-        // Scan for opportunities
-        let opportunities = bot.scan_for_opportunities(&pm_events, &kalshi_events, fetch_prices.clone()).await;
+        // Run both strategies in parallel
+        let (cross_platform_opps, gabagool_opps) = tokio::join!(
+            // Strategy 1: Cross-platform arbitrage
+            bot.scan_for_opportunities(&pm_events, &kalshi_events, fetch_prices_cross.clone()),
+            // Strategy 2: Gabagool hedged arbitrage
+            bot.scan_gabagool_opportunities(&pm_events, fetch_prices_gabagool.clone(), get_position_balance.clone())
+        );
         
-        // Execute trades for found opportunities
-        if !opportunities.is_empty() {
-            info!("Found {} arbitrage opportunities", opportunities.len());
+        // Execute cross-platform trades
+        if !cross_platform_opps.is_empty() {
+            info!("🔀 Strategy 1: Found {} cross-platform arbitrage opportunities", cross_platform_opps.len());
             
-            for (pm_event, kalshi_event, opp) in opportunities {
+            for (pm_event, kalshi_event, opp) in cross_platform_opps {
                 info!(
-                    "🚨 Arbitrage Opportunity: {} - Profit: ${:.4}, ROI: {:.2}%",
+                    "🚨 Cross-Platform Opportunity: {} - Profit: ${:.4}, ROI: {:.2}%",
                     pm_event.title,
                     opp.net_profit,
                     opp.roi_percent
                 );
 
-                // Execute trade (with default amount - you may want to make this configurable)
                 let trade_amount = 100.0; // $100 default
                 
                 match trade_executor
@@ -158,21 +214,72 @@ async fn main() -> Result<()> {
                     Ok(result) => {
                         if result.success {
                             info!(
-                                "✅ Trade executed successfully! PM Order: {:?}, Kalshi Order: {:?}",
+                                "✅ Cross-platform trade executed! PM: {:?}, Kalshi: {:?}",
                                 result.polymarket_order_id, result.kalshi_order_id
                             );
                         } else {
-                            info!(
-                                "⚠️ Trade execution failed: {}",
+                            warn!(
+                                "⚠️ Cross-platform trade failed: {}",
                                 result.error.unwrap_or_default()
                             );
                         }
                     }
                     Err(e) => {
-                        error!("Error executing trade: {}", e);
+                        error!("Error executing cross-platform trade: {}", e);
                     }
                 }
             }
+        }
+        
+        // Execute Gabagool trades
+        if !gabagool_opps.is_empty() {
+            info!("🎯 Strategy 2: Found {} Gabagool opportunities", gabagool_opps.len());
+            
+            for opp in gabagool_opps {
+                info!(
+                    "🎯 Gabagool Opportunity: {} - Buy {} @ ${:.4}, Profit: ${:.4} ({:.2}% ROI), Pair Cost: ${:.4}",
+                    opp.event.title,
+                    opp.cheap_side,
+                    opp.cheap_price,
+                    opp.net_profit,
+                    opp.roi_percent,
+                    opp.pair_cost_after
+                );
+
+                if opp.profit_locked {
+                    info!("🔒 Profit already LOCKED for this position!");
+                }
+
+                let trade_amount = 100.0; // $100 default
+                
+                match gabagool_executor.execute_trade(&opp, trade_amount).await {
+                    Ok(success) => {
+                        if success {
+                            info!("✅ Gabagool trade executed successfully!");
+                        } else {
+                            warn!("⚠️ Gabagool trade execution returned false");
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error executing Gabagool trade: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Log statistics
+        if !cross_platform_opps.is_empty() || !gabagool_opps.is_empty() {
+            let gabagool_stats = gabagool_executor.get_statistics().await;
+            info!(
+                "📊 Gabagool Stats - Events: {}, YES: {:.2}, NO: {:.2}, Total Cost: ${:.2}, Locked Profit: ${:.2} ({:.2} pairs)",
+                gabagool_stats.total_events,
+                gabagool_stats.total_yes_qty,
+                gabagool_stats.total_no_qty,
+                gabagool_stats.total_cost,
+                gabagool_stats.locked_profit,
+                gabagool_stats.locked_pairs
+            );
+        }
             }
             _ = settlement_interval.tick() => {
                 // Check for settlements

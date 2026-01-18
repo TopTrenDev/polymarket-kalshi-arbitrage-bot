@@ -8,6 +8,8 @@ pub mod trade_executor;
 pub mod position_tracker;
 pub mod settlement_checker;
 pub mod polymarket_blockchain;
+pub mod gabagool_detector;
+pub mod gabagool_executor;
 
 // Re-exports
 pub use event::{Event, MarketPrices};
@@ -18,4 +20,6 @@ pub use clients::{PolymarketClient, KalshiClient};
 pub use trade_executor::{TradeExecutor, TradeResult};
 pub use position_tracker::{PositionTracker, Position, PositionStatus, PositionStatistics};
 pub use settlement_checker::SettlementChecker;
+pub use gabagool_detector::{GabagoolDetector, GabagoolOpportunity};
+pub use gabagool_executor::{GabagoolExecutor, GabagoolStatistics};
 

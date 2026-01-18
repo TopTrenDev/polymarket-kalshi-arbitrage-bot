@@ -1,6 +1,7 @@
 use crate::arbitrage_detector::{ArbitrageDetector, ArbitrageOpportunity};
 use crate::event::{Event, MarketPrices};
 use crate::event_matcher::EventMatcher;
+use crate::gabagool_detector::{GabagoolDetector, GabagoolOpportunity};
 use chrono::{DateTime, Duration, Utc};
 use std::time::Duration as StdDuration;
 use tokio::time;
@@ -25,6 +26,7 @@ pub struct ShortTermArbitrageBot {
     filters: MarketFilters,
     event_matcher: EventMatcher,
     arbitrage_detector: ArbitrageDetector,
+    gabagool_detector: GabagoolDetector,
 }
 
 impl ShortTermArbitrageBot {
@@ -37,6 +39,7 @@ impl ShortTermArbitrageBot {
             filters,
             event_matcher: EventMatcher::new(similarity_threshold),
             arbitrage_detector: ArbitrageDetector::new(min_profit_threshold),
+            gabagool_detector: GabagoolDetector::new(min_profit_threshold),
         }
     }
 
@@ -151,6 +154,56 @@ impl ShortTermArbitrageBot {
             // Check arbitrage
             if let Some(opportunity) = self.arbitrage_detector.check_arbitrage(&pm_prices, &kalshi_prices) {
                 opportunities.push((pm_event, kalshi_event, opportunity));
+            }
+        }
+
+        opportunities
+    }
+
+    /// Scan for Gabagool opportunities (single-platform hedged arbitrage)
+    pub async fn scan_gabagool_opportunities<F, Fut, G, Gfut>(
+        &self,
+        pm_events: &[Event],
+        fetch_prices: F,
+        get_position_balance: G,
+    ) -> Vec<GabagoolOpportunity>
+    where
+        F: Fn(&str) -> Fut,
+        Fut: std::future::Future<Output = MarketPrices> + Send,
+        G: Fn(&str) -> Gfut,
+        Gfut: std::future::Future<Output = (f64, f64, f64, f64)> + Send, // (yes_qty, yes_cost, no_qty, no_cost)
+    {
+        // Filter events
+        let pm_filtered = self.filter_events(pm_events);
+
+        if pm_filtered.is_empty() {
+            return Vec::new();
+        }
+
+        let mut opportunities = Vec::new();
+
+        for event in &pm_filtered {
+            // Fetch prices
+            let prices = fetch_prices(&event.event_id).await;
+
+            // Check liquidity
+            if prices.liquidity < self.filters.min_liquidity {
+                continue;
+            }
+
+            // Get existing position balance
+            let (yes_qty, yes_cost, no_qty, no_cost) = get_position_balance(&event.event_id).await;
+
+            // Check for Gabagool opportunity
+            if let Some(opportunity) = self.gabagool_detector.check_opportunity(
+                event,
+                &prices,
+                yes_qty,
+                no_qty,
+                yes_cost,
+                no_cost,
+            ) {
+                opportunities.push(opportunity);
             }
         }
 
