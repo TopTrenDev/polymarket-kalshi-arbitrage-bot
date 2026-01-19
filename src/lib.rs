@@ -1,4 +1,3 @@
-// Core modules
 pub mod event;
 pub mod event_matcher;
 pub mod arbitrage_detector;
@@ -10,8 +9,6 @@ pub mod settlement_checker;
 pub mod polymarket_blockchain;
 pub mod gabagool_detector;
 pub mod gabagool_executor;
-
-// Re-exports
 pub use event::{Event, MarketPrices};
 pub use event_matcher::EventMatcher;
 pub use arbitrage_detector::{ArbitrageDetector, ArbitrageOpportunity};

@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc, FixedOffset, TimeZone};
 use regex::Regex;
 use std::collections::HashSet;
 
-/// Confidence score for event matches
 #[derive(Debug, Clone)]
 pub struct MatchConfidence {
     pub text_similarity: f64,
@@ -66,7 +65,7 @@ impl EventMatcher {
             r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
             r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b",
             r"\b\d{4}\b",
-            r"\b\d{4}-\d{2}-\d{2}\b", // ISO format
+            r"\b\d{4}-\d{2}-\d{2}\b",
             r"\b\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b",
         ];
 
@@ -81,9 +80,8 @@ impl EventMatcher {
         dates
     }
 
-    /// Parse resolution date with multiple format support
     pub fn parse_resolution_date(&self, date_str: &str) -> Option<DateTime<Utc>> {
-        // Try multiple date formats
+
         let formats = [
             "%Y-%m-%dT%H:%M:%S%.fZ",
             "%Y-%m-%dT%H:%M:%SZ",
@@ -101,7 +99,6 @@ impl EventMatcher {
             }
         }
 
-        // Try RFC3339
         if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
             return Some(dt.with_timezone(&Utc));
         }
@@ -109,12 +106,11 @@ impl EventMatcher {
         None
     }
 
-    /// Check if two dates are within acceptable range (same day or within 24 hours)
     pub fn dates_match(&self, date1: Option<DateTime<Utc>>, date2: Option<DateTime<Utc>>) -> bool {
         match (date1, date2) {
             (Some(d1), Some(d2)) => {
                 let diff = (d1 - d2).num_seconds().abs();
-                diff <= 86400 // Within 24 hours
+                diff <= 86400
             }
             _ => false,
         }
@@ -143,12 +139,11 @@ impl EventMatcher {
     }
 
     pub fn calculate_similarity_with_confidence(&self, event1: &Event, event2: &Event) -> MatchConfidence {
-        // Text similarity using strsim
+
         let title1 = self.normalize_text(&event1.title);
         let title2 = self.normalize_text(&event2.title);
         let text_similarity = strsim::jaro_winkler(&title1, &title2);
 
-        // Keyword overlap
         let keywords1 = self.extract_keywords(&event1.title);
         let keywords2 = self.extract_keywords(&event2.title);
 
@@ -160,40 +155,35 @@ impl EventMatcher {
             0.0
         };
 
-        // Date matching - improved with resolution date comparison
         let date_match = self.dates_match(event1.resolution_date, event2.resolution_date);
-        
-        // Also check extracted dates from text
+
         let dates1 = self.extract_dates(&(event1.title.clone() + " " + &event1.description));
         let dates2 = self.extract_dates(&(event2.title.clone() + " " + &event2.description));
         let date_text_match = if !dates1.is_empty() && !dates2.is_empty() {
             let set1: HashSet<_> = dates1.iter().collect();
             let set2: HashSet<_> = dates2.iter().collect();
-            !set1.is_disjoint(&set2) // Check if any dates overlap
+            !set1.is_disjoint(&set2)
         } else {
             false
         };
         
         let date_match_final = date_match || date_text_match;
 
-        // Category matching
         let category_match = match (&event1.category, &event2.category) {
             (Some(c1), Some(c2)) => c1.to_lowercase() == c2.to_lowercase(),
             _ => false,
         };
 
-        // Number matching
         let numbers1 = self.extract_numbers(&event1.title);
         let numbers2 = self.extract_numbers(&event2.title);
         let number_match = if !numbers1.is_empty() && !numbers2.is_empty() {
             let set1: HashSet<_> = numbers1.iter().collect();
             let set2: HashSet<_> = numbers2.iter().collect();
-            !set1.is_disjoint(&set2) // Check if any numbers overlap
+            !set1.is_disjoint(&set2)
         } else {
             false
         };
 
-        // Weighted combination
         let overall_score = text_similarity * 0.4
             + keyword_overlap * 0.25
             + if date_match_final { 0.15 } else { 0.0 }
@@ -242,7 +232,6 @@ impl EventMatcher {
             }
         }
 
-        // Sort by overall score (highest first)
         matches.sort_by(|a, b| {
             b.2.overall_score.partial_cmp(&a.2.overall_score)
                 .unwrap_or(std::cmp::Ordering::Equal)

@@ -15,17 +15,15 @@ use tracing::{error, info, warn, Level};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
+
     tracing_subscriber::fmt()
         .with_max_level(Level::INFO)
         .init();
 
     info!("Starting Polymarket-Kalshi Arbitrage Bot");
 
-    // Load environment variables
     dotenv::dotenv().ok();
 
-    // Initialize clients with required credentials
     let polygon_rpc = std::env::var("POLYGON_RPC_URL")
         .unwrap_or_else(|_| "https://polygon-rpc.com".to_string());
     let wallet_key = std::env::var("POLYMARKET_WALLET_PRIVATE_KEY")
@@ -58,14 +56,11 @@ async fn main() -> Result<()> {
     
     let kalshi_client = KalshiClient::new(kalshi_api_key, kalshi_api_secret);
 
-    // Wrap clients in Arc for sharing
     let polymarket_client = Arc::new(polymarket_client);
     let kalshi_client = Arc::new(kalshi_client);
 
-    // Create position tracker
     let position_tracker = Arc::new(Mutex::new(PositionTracker::new()));
 
-    // Create trade executor with position tracker
     let trade_executor = Arc::new(
         TradeExecutor::new(
             (*polymarket_client.clone()).clone(),
@@ -74,34 +69,29 @@ async fn main() -> Result<()> {
         .with_position_tracker(position_tracker.clone()),
     );
 
-    // Create Gabagool executor
     let gabagool_executor = Arc::new(
         GabagoolExecutor::new(polymarket_client.clone())
             .with_position_tracker(position_tracker.clone()),
     );
 
-    // Create settlement checker
     let settlement_checker = Arc::new(SettlementChecker::new(
         polymarket_client.clone(),
         kalshi_client.clone(),
         position_tracker.clone(),
     ));
 
-    // Configure filters
     let filters = MarketFilters {
         categories: vec!["crypto".to_string(), "sports".to_string()],
         max_hours_until_resolution: 24,
         min_liquidity: 100.0,
     };
 
-    // Create bot
     let bot = ShortTermArbitrageBot::new(
         filters,
-        0.80, // similarity threshold
-        0.02, // min profit threshold (2%)
+        0.80,
+        0.02,
     );
 
-    // Fetch prices function
     let fetch_prices = {
         let pm = polymarket_client.clone();
         let kalshi = kalshi_client.clone();
@@ -120,16 +110,14 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Run continuous scanning (every 60 seconds)
     info!("Starting dual-strategy scanning (interval: 60s)");
     info!("  Strategy 1: Cross-platform arbitrage (Polymarket ↔ Kalshi)");
     info!("  Strategy 2: Gabagool hedged arbitrage (Polymarket only)");
     info!("Settlement checking (every 5 minutes)");
     
     let mut scan_interval = tokio::time::interval(Duration::from_secs(60));
-    let mut settlement_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
-    
-    // Fetch prices function for cross-platform
+    let mut settlement_interval = tokio::time::interval(Duration::from_secs(300));
+
     let fetch_prices_cross = {
         let pm = polymarket_client.clone();
         let kalshi = kalshi_client.clone();
@@ -148,7 +136,6 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Fetch prices function for Gabagool (Polymarket only)
     let fetch_prices_gabagool = {
         let pm = polymarket_client.clone();
         move |event_id: &str| {
@@ -160,7 +147,6 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Get position balance function for Gabagool
     let get_position_balance = {
         let executor = gabagool_executor.clone();
         move |event_id: &str| {
@@ -175,8 +161,7 @@ async fn main() -> Result<()> {
     loop {
         tokio::select! {
             _ = scan_interval.tick() => {
-        
-        // Fetch events
+
         let (pm_events, kalshi_events) = tokio::join!(
             polymarket_client.fetch_events(),
             kalshi_client.fetch_events()
@@ -184,16 +169,14 @@ async fn main() -> Result<()> {
         
         let pm_events = pm_events.unwrap_or_default();
         let kalshi_events = kalshi_events.unwrap_or_default();
-        
-        // Run both strategies in parallel
+
         let (cross_platform_opps, gabagool_opps) = tokio::join!(
-            // Strategy 1: Cross-platform arbitrage
+
             bot.scan_for_opportunities(&pm_events, &kalshi_events, fetch_prices_cross.clone()),
-            // Strategy 2: Gabagool hedged arbitrage
+
             bot.scan_gabagool_opportunities(&pm_events, fetch_prices_gabagool.clone(), get_position_balance.clone())
         );
-        
-        // Execute cross-platform trades
+
         if !cross_platform_opps.is_empty() {
             info!("🔀 Strategy 1: Found {} cross-platform arbitrage opportunities", cross_platform_opps.len());
             
@@ -205,7 +188,7 @@ async fn main() -> Result<()> {
                     opp.roi_percent
                 );
 
-                let trade_amount = 100.0; // $100 default
+                let trade_amount = 100.0;
                 
                 match trade_executor
                     .execute_arbitrage(&opp, &pm_event, &kalshi_event, trade_amount)
@@ -230,8 +213,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        
-        // Execute Gabagool trades
+
         if !gabagool_opps.is_empty() {
             info!("🎯 Strategy 2: Found {} Gabagool opportunities", gabagool_opps.len());
             
@@ -250,7 +232,7 @@ async fn main() -> Result<()> {
                     info!("🔒 Profit already LOCKED for this position!");
                 }
 
-                let trade_amount = 100.0; // $100 default
+                let trade_amount = 100.0;
                 
                 match gabagool_executor.execute_trade(&opp, trade_amount).await {
                     Ok(success) => {
@@ -267,7 +249,6 @@ async fn main() -> Result<()> {
             }
         }
 
-        // Log statistics
         if !cross_platform_opps.is_empty() || !gabagool_opps.is_empty() {
             let gabagool_stats = gabagool_executor.get_statistics().await;
             info!(
@@ -282,14 +263,13 @@ async fn main() -> Result<()> {
         }
             }
             _ = settlement_interval.tick() => {
-                // Check for settlements
+
                 info!("Checking for settled positions...");
                 match settlement_checker.check_settlements().await {
                     Ok(count) => {
                         if count > 0 {
                             info!("✅ {} positions settled!", count);
-                            
-                            // Show statistics
+
                             let stats = settlement_checker.get_statistics().await;
                             info!(
                                 "📊 Statistics - Total: {}, Open: {}, Won: {}, Lost: {}, Total Profit: ${:.2}",
@@ -299,8 +279,7 @@ async fn main() -> Result<()> {
                                 stats.lost_positions,
                                 stats.total_profit
                             );
-                            
-                            // Check balances
+
                             if let Ok((pm_balance, kalshi_balance)) = settlement_checker.check_balances().await {
                                 info!(
                                     "💰 Current Balances - Polymarket: ${:.2}, Kalshi: ${:.2}, Total: ${:.2}",

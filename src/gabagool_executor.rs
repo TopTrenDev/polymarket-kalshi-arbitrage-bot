@@ -8,7 +8,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
-/// Tracks Gabagool positions per event
 #[derive(Debug, Clone)]
 struct GabagoolPosition {
     event_id: String,
@@ -38,7 +37,6 @@ impl GabagoolExecutor {
         self
     }
 
-    /// Get current position balance for an event
     pub async fn get_position_balance(&self, event_id: &str) -> (f64, f64, f64, f64) {
         let positions = self.gabagool_positions.lock().await;
         if let Some(pos) = positions.get(event_id) {
@@ -53,7 +51,6 @@ impl GabagoolExecutor {
         }
     }
 
-    /// Execute a Gabagool trade (buy the cheap side)
     pub async fn execute_trade(
         &self,
         opportunity: &GabagoolOpportunity,
@@ -69,10 +66,8 @@ impl GabagoolExecutor {
             opportunity.roi_percent
         );
 
-        // Calculate number of shares to buy
         let shares = amount / opportunity.cheap_price;
 
-        // Place order on Polymarket
         let order_id = self
             .polymarket_client
             .place_order(
@@ -87,7 +82,6 @@ impl GabagoolExecutor {
             warn!("⚠️ Gabagool order placed but no order ID returned");
         }
 
-        // Update position balance
         let mut positions = self.gabagool_positions.lock().await;
         let position = positions
             .entry(opportunity.event.event_id.clone())
@@ -114,7 +108,6 @@ impl GabagoolExecutor {
 
         drop(positions);
 
-        // Track in main position tracker
         if let Some(tracker) = &self.position_tracker {
             let mut tracker = tracker.lock().await;
             let position = Position::new(
@@ -129,7 +122,6 @@ impl GabagoolExecutor {
             tracker.add_position(position);
         }
 
-        // Log position status
         let min_qty = new_yes_qty.min(new_no_qty);
         let pair_cost = if min_qty > 0.0 {
             (new_yes_cost + new_no_cost) / min_qty
@@ -153,7 +145,6 @@ impl GabagoolExecutor {
         Ok(true)
     }
 
-    /// Get statistics for all Gabagool positions
     pub async fn get_statistics(&self) -> GabagoolStatistics {
         let positions = self.gabagool_positions.lock().await;
         

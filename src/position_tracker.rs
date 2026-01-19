@@ -6,28 +6,28 @@ use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PositionStatus {
-    Open,      // Trade executed, waiting for settlement
-    Settled,   // Event resolved
-    Won,       // Position won (payout received)
-    Lost,      // Position lost (no payout)
+    Open,
+    Settled,
+    Won,
+    Lost,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
     pub id: String,
-    pub platform: String,        // "polymarket" or "kalshi"
+    pub platform: String,
     pub event_id: String,
     pub event_title: String,
-    pub outcome: String,         // "YES" or "NO"
-    pub amount: f64,            // Number of tokens/shares
-    pub cost: f64,               // Total cost
-    pub price: f64,              // Price per token/share
+    pub outcome: String,
+    pub amount: f64,
+    pub cost: f64,
+    pub price: f64,
     pub order_id: Option<String>,
     pub status: PositionStatus,
     pub created_at: DateTime<Utc>,
     pub settled_at: Option<DateTime<Utc>>,
-    pub payout: Option<f64>,     // Payout amount if won
-    pub profit: Option<f64>,     // Profit/loss
+    pub payout: Option<f64>,
+    pub profit: Option<f64>,
 }
 
 impl Position {
@@ -59,13 +59,13 @@ impl Position {
     }
 
     pub fn calculate_profit_if_won(&self) -> f64 {
-        // If position wins, payout is amount * $1.00
+
         let payout = self.amount * 1.0;
         payout - self.cost
     }
 
     pub fn calculate_profit_if_lost(&self) -> f64 {
-        // If position loses, payout is $0.00
+
         -self.cost
     }
 }
@@ -81,7 +81,6 @@ impl PositionTracker {
         }
     }
 
-    /// Add a new position after trade execution
     pub fn add_position(&mut self, position: Position) {
         info!("📝 Tracking new position: {} - {} {} @ ${:.4}", 
             position.event_title, 
@@ -92,7 +91,6 @@ impl PositionTracker {
         self.positions.insert(position.id.clone(), position);
     }
 
-    /// Get all open positions
     pub fn get_open_positions(&self) -> Vec<&Position> {
         self.positions
             .values()
@@ -100,12 +98,10 @@ impl PositionTracker {
             .collect()
     }
 
-    /// Get all positions
     pub fn get_all_positions(&self) -> Vec<&Position> {
         self.positions.values().collect()
     }
 
-    /// Get positions by platform
     pub fn get_positions_by_platform(&self, platform: &str) -> Vec<&Position> {
         self.positions
             .values()
@@ -113,7 +109,6 @@ impl PositionTracker {
             .collect()
     }
 
-    /// Update position status when settled
     pub fn update_position_settlement(
         &mut self,
         position_id: &str,
@@ -129,7 +124,6 @@ impl PositionTracker {
             position.settled_at = Some(Utc::now());
             position.payout = payout;
 
-            // Calculate profit
             let profit = if won {
                 position.calculate_profit_if_won()
             } else {
@@ -150,7 +144,6 @@ impl PositionTracker {
         }
     }
 
-    /// Get total profit/loss
     pub fn get_total_profit(&self) -> f64 {
         self.positions
             .values()
@@ -158,7 +151,6 @@ impl PositionTracker {
             .sum()
     }
 
-    /// Get profit by platform
     pub fn get_profit_by_platform(&self, platform: &str) -> f64 {
         self.positions
             .values()
@@ -167,7 +159,6 @@ impl PositionTracker {
             .sum()
     }
 
-    /// Get statistics
     pub fn get_statistics(&self) -> PositionStatistics {
         let total = self.positions.len();
         let open = self.positions.values().filter(|p| p.status == PositionStatus::Open).count();

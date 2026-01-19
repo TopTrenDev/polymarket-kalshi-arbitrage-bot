@@ -35,7 +35,6 @@ impl TradeExecutor {
         self
     }
 
-    /// Execute arbitrage trade on both platforms simultaneously
     pub async fn execute_arbitrage(
         &self,
         opportunity: &ArbitrageOpportunity,
@@ -48,7 +47,6 @@ impl TradeExecutor {
             opportunity.strategy, opportunity.net_profit, opportunity.roi_percent
         );
 
-        // Execute trades simultaneously on both platforms
         let (pm_result, kalshi_result) = tokio::join!(
             self.execute_polymarket_trade(
                 pm_event,
@@ -65,7 +63,6 @@ impl TradeExecutor {
         let pm_success = pm_result.is_ok();
         let kalshi_success = kalshi_result.is_ok();
 
-        // Check if both trades succeeded
         if pm_success && kalshi_success {
             info!(
                 "✅ Arbitrage executed successfully! PM: {:?}, Kalshi: {:?}",
@@ -76,30 +73,27 @@ impl TradeExecutor {
             let pm_order_id = pm_result.unwrap();
             let kalshi_order_id = kalshi_result.unwrap();
 
-            // Track positions if tracker is available
             if let Some(tracker) = &self.position_tracker {
                 let mut tracker = tracker.lock().await;
-                
-                // Track Polymarket position
+
                 let pm_position = Position::new(
                     "polymarket".to_string(),
                     pm_event,
-                    opportunity.polymarket_action.1.clone(), // outcome
-                    amount / opportunity.polymarket_action.2, // amount / price
-                    amount * opportunity.polymarket_action.2, // cost
-                    opportunity.polymarket_action.2, // price
+                    opportunity.polymarket_action.1.clone(),
+                    amount / opportunity.polymarket_action.2,
+                    amount * opportunity.polymarket_action.2,
+                    opportunity.polymarket_action.2,
                     pm_order_id.clone(),
                 );
                 tracker.add_position(pm_position);
 
-                // Track Kalshi position
                 let kalshi_position = Position::new(
                     "kalshi".to_string(),
                     kalshi_event,
-                    opportunity.kalshi_action.1.clone(), // outcome
-                    amount / opportunity.kalshi_action.2, // amount / price
-                    amount * opportunity.kalshi_action.2, // cost
-                    opportunity.kalshi_action.2, // price
+                    opportunity.kalshi_action.1.clone(),
+                    amount / opportunity.kalshi_action.2,
+                    amount * opportunity.kalshi_action.2,
+                    opportunity.kalshi_action.2,
                     kalshi_order_id.clone(),
                 );
                 tracker.add_position(kalshi_position);
@@ -112,7 +106,7 @@ impl TradeExecutor {
                 error: None,
             })
         } else {
-            // One or both trades failed
+
             let mut errors = Vec::new();
             if let Err(e) = pm_result {
                 errors.push(format!("Polymarket: {}", e));
@@ -125,7 +119,6 @@ impl TradeExecutor {
 
             warn!("⚠️ Arbitrage execution failed: {}", error_msg);
 
-            // If one succeeded, we need to cancel it (or handle partial execution)
             if pm_success {
                 warn!("Polymarket trade succeeded but Kalshi failed - may need to cancel PM trade");
             }
@@ -142,11 +135,10 @@ impl TradeExecutor {
         }
     }
 
-    /// Execute trade on Polymarket
     async fn execute_polymarket_trade(
         &self,
         event: &Event,
-        action: &(String, String, f64), // (action, outcome, price)
+        action: &(String, String, f64),
         amount: f64,
     ) -> Result<Option<String>> {
         let (action_type, outcome, max_price) = action;
@@ -156,7 +148,6 @@ impl TradeExecutor {
             action_type, outcome, max_price, amount
         );
 
-        // Execute actual Polymarket trade
         match self
             .polymarket_client
             .place_order(
@@ -178,11 +169,10 @@ impl TradeExecutor {
         Ok(Some(order_id))
     }
 
-    /// Execute trade on Kalshi
     async fn execute_kalshi_trade(
         &self,
         event: &Event,
-        action: &(String, String, f64), // (action, outcome, price)
+        action: &(String, String, f64),
         amount: f64,
     ) -> Result<Option<String>> {
         let (action_type, outcome, price) = action;
@@ -192,7 +182,6 @@ impl TradeExecutor {
             action_type, outcome, price, amount
         );
 
-        // Execute actual Kalshi trade
         match self
             .kalshi_client
             .place_order(
@@ -214,16 +203,15 @@ impl TradeExecutor {
         Ok(Some(order_id))
     }
 
-    /// Cancel an order (if needed due to partial execution)
     pub async fn cancel_order(&self, platform: &str, order_id: &str) -> Result<()> {
         match platform {
             "polymarket" => {
-                // TODO: Implement Polymarket order cancellation
+
                 info!("Cancelling Polymarket order: {}", order_id);
                 Ok(())
             }
             "kalshi" => {
-                // TODO: Implement Kalshi order cancellation
+
                 info!("Cancelling Kalshi order: {}", order_id);
                 Ok(())
             }
@@ -234,15 +222,14 @@ impl TradeExecutor {
         }
     }
 
-    /// Get order status
     pub async fn get_order_status(&self, platform: &str, order_id: &str) -> Result<String> {
         match platform {
             "polymarket" => {
-                // TODO: Implement Polymarket order status check
+
                 Ok("filled".to_string())
             }
             "kalshi" => {
-                // TODO: Implement Kalshi order status check
+
                 Ok("filled".to_string())
             }
             _ => Err(anyhow::anyhow!("Unknown platform: {}", platform)),

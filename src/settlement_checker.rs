@@ -23,12 +23,11 @@ impl SettlementChecker {
         }
     }
 
-    /// Check all open positions for settlement
     pub async fn check_settlements(&self) -> Result<usize> {
         let mut settled_count = 0;
         let tracker = self.position_tracker.lock().await;
         let open_positions = tracker.get_open_positions();
-        drop(tracker); // Release lock before async operations
+        drop(tracker);
 
         for position in open_positions {
             let position_id = position.id.clone();
@@ -36,7 +35,6 @@ impl SettlementChecker {
             let outcome = position.outcome.clone();
             let platform = position.platform.clone();
 
-            // Check settlement based on platform
             let settlement_result = match platform.as_str() {
                 "polymarket" => {
                     self.polymarket_client.check_settlement(&event_id).await
@@ -49,17 +47,16 @@ impl SettlementChecker {
 
             match settlement_result {
                 Ok(Some(resolved_yes)) => {
-                    // Event is settled!
+
                     let won = (resolved_yes && outcome == "YES") 
                         || (!resolved_yes && outcome == "NO");
 
                     let payout = if won {
-                        Some(position.amount * 1.0) // $1.00 per token/share
+                        Some(position.amount * 1.0)
                     } else {
-                        Some(0.0) // Lost
+                        Some(0.0)
                     };
 
-                    // Update position
                     let mut tracker = self.position_tracker.lock().await;
                     if let Some(profit) = tracker.update_position_settlement(
                         &position_id,
@@ -76,7 +73,7 @@ impl SettlementChecker {
                     }
                 }
                 Ok(None) => {
-                    // Event not yet settled, continue waiting
+
                 }
                 Err(e) => {
                     warn!("Error checking settlement for {}: {}", event_id, e);
@@ -87,7 +84,6 @@ impl SettlementChecker {
         Ok(settled_count)
     }
 
-    /// Check balances on both platforms
     pub async fn check_balances(&self) -> Result<(f64, f64)> {
         let (pm_balance, kalshi_balance) = tokio::join!(
             self.polymarket_client.get_balance(),
@@ -107,7 +103,6 @@ impl SettlementChecker {
         Ok((pm_balance, kalshi_balance))
     }
 
-    /// Get position statistics
     pub async fn get_statistics(&self) -> crate::position_tracker::PositionStatistics {
         let tracker = self.position_tracker.lock().await;
         tracker.get_statistics()

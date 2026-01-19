@@ -63,7 +63,6 @@ impl MarketPrices {
     }
 
     pub fn validate(&self) -> bool {
-        // Yes + No should equal ~1.00 (allowing for small rounding)
         (self.yes + self.no - 1.0).abs() < 0.01
     }
 }

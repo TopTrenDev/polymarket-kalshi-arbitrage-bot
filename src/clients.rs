@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use tracing::{info, warn};
 
-// Polymarket API Client
 #[derive(Clone)]
 pub struct PolymarketClient {
     http_client: Client,
@@ -17,20 +16,20 @@ pub struct PolymarketClient {
 
 impl PolymarketClient {
     pub fn new() -> Self {
-        // Create HTTP client with connection pooling and timeouts
+
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
-            .unwrap_or_else(|_| Client::new()); // Fallback to default if builder fails
+            .unwrap_or_else(|_| Client::new());
         
         Self {
             http_client,
             polygon_rpc_url: std::env::var("POLYGON_RPC_URL")
-                .unwrap_or_else(|_| "https://polygon-rpc.com".to_string()),
+                .unwrap_or_else(|_| "https:
             wallet_private_key: std::env::var("POLYMARKET_WALLET_PRIVATE_KEY").ok(),
-            base_url: "https://gamma-api.polymarket.com".to_string(),
+            base_url: "https:
         }
     }
 
@@ -44,9 +43,8 @@ impl PolymarketClient {
         self
     }
 
-    /// Fetch active markets/events from Polymarket
     pub async fn fetch_events(&self) -> Result<Vec<Event>> {
-        // Polymarket uses GraphQL API
+
         let query = r#"
             query GetMarkets($active: Boolean) {
                 markets(active: $active, limit: 1000) {
@@ -102,8 +100,7 @@ impl PolymarketClient {
                 let category = market["category"]
                     .as_str()
                     .map(|s| s.to_string());
-                
-                // Parse end date
+
                 let resolution_date = market["endDate"]
                     .as_str()
                     .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
@@ -124,10 +121,9 @@ impl PolymarketClient {
         Ok(events)
     }
 
-    /// Fetch current prices for a market
     pub async fn fetch_prices(&self, event_id: &str) -> Result<MarketPrices> {
-        // Use Polymarket's CLOB API for prices
-        let url = format!("https://clob.polymarket.com/book", event_id);
+
+        let url = format!("https:
         
         let response = self
             .http_client
@@ -142,7 +138,6 @@ impl PolymarketClient {
             .await
             .context("Failed to parse price response")?;
 
-        // Extract Yes and No prices from order book
         let yes_price = data["yes"]
             .as_object()
             .and_then(|o| o.get("bestBid"))
@@ -155,7 +150,6 @@ impl PolymarketClient {
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
-        // Calculate liquidity (sum of order book depth)
         let liquidity = data["liquidity"]
             .as_f64()
             .unwrap_or(0.0);
@@ -163,28 +157,25 @@ impl PolymarketClient {
         Ok(MarketPrices::new(yes_price, no_price, liquidity))
     }
 
-    /// Place a buy order on Polymarket (requires wallet and blockchain interaction)
     pub async fn place_order(
         &self,
         event_id: String,
-        outcome: String, // "YES" or "NO"
+        outcome: String,
         amount: f64,
         max_price: f64,
     ) -> Result<Option<String>> {
-        // Check if wallet is configured
+
         let private_key = self
             .wallet_private_key
             .as_ref()
             .context("Polymarket wallet private key not configured. Set POLYMARKET_WALLET_PRIVATE_KEY environment variable")?;
 
-        // Use blockchain client for order placement
         use crate::polymarket_blockchain::PolymarketBlockchain;
         
         let blockchain = PolymarketBlockchain::new(&self.polygon_rpc_url)?
             .with_wallet(private_key)
             .context("Failed to initialize blockchain client")?;
 
-        // Try blockchain method first, fall back to CLOB if needed
         match blockchain.place_order_via_blockchain(&event_id, &outcome, amount, max_price).await {
             Ok(Some(tx_hash)) => {
                 info!("Polymarket order placed via blockchain: {}", tx_hash);
@@ -196,15 +187,14 @@ impl PolymarketClient {
             }
             Err(e) => {
                 warn!("Blockchain order failed: {:?}. Attempting CLOB API...", e);
-                // Fall back to CLOB API (if implemented)
+
                 blockchain.place_order_via_clob(&self.http_client, &event_id, &outcome, amount, max_price).await
             }
         }
     }
 
-    /// Check if an event is settled and get the outcome
     pub async fn check_settlement(&self, event_id: &str) -> Result<Option<bool>> {
-        // Query Polymarket API for market status
+
         let query = r#"
             query GetMarket($id: ID!) {
                 market(id: $id) {
@@ -242,17 +232,15 @@ impl PolymarketClient {
             }
         }
 
-        Ok(None) // Not yet settled
+        Ok(None)
     }
 
-    /// Get wallet balance (USDC on Polygon)
     pub async fn get_balance(&self) -> Result<f64> {
         let private_key = self
             .wallet_private_key
             .as_ref()
             .context("Wallet private key required for balance check")?;
 
-        // Use blockchain client for balance check
         use crate::polymarket_blockchain::PolymarketBlockchain;
         
         let blockchain = PolymarketBlockchain::new(&self.polygon_rpc_url)?
@@ -263,7 +251,6 @@ impl PolymarketClient {
     }
 }
 
-// Kalshi API Client
 #[derive(Clone)]
 pub struct KalshiClient {
     http_client: Client,
@@ -274,24 +261,23 @@ pub struct KalshiClient {
 
 impl KalshiClient {
     pub fn new(api_key: String, api_secret: String) -> Self {
-        // Create HTTP client with connection pooling and timeouts
+
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
-            .unwrap_or_else(|_| Client::new()); // Fallback to default if builder fails
+            .unwrap_or_else(|_| Client::new());
         
         Self {
             http_client,
             api_key,
             api_secret,
-            base_url: "https://api.cfexchange.com".to_string(), // Kalshi API base URL
+            base_url: "https:
         }
     }
 
-    /// Generate authentication headers for Kalshi API
-    /// Uses RSA-PSS signature for secure authentication
+
     fn get_auth_headers(&self, method: &str, path: &str, body: &str) -> Result<reqwest::header::HeaderMap> {
         use reqwest::header::{HeaderMap, HeaderValue};
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -301,41 +287,35 @@ impl KalshiClient {
         use base64::{engine::general_purpose, Engine as _};
 
         let mut headers = HeaderMap::new();
-        
-        // Kalshi uses timestamp-based authentication
+
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
             .to_string();
 
-        // Create signature string: timestamp\nmethod\npath\nbody
         let signature_string = format!("{}\n{}\n{}\n{}", timestamp, method, path, body);
 
-        // Try to parse API secret as RSA private key (PEM format)
-        // Kalshi API secret might be in different formats, so we try multiple
+
         let signature_b64 = if let Ok(private_key) = RsaPrivateKey::from_pkcs8_pem(&self.api_secret) {
-            // PEM format - create signing key
+
             let signing_key = SigningKey::<Sha256>::new(private_key);
-            
-            // Sign the message
+
             let signature = signing_key.sign(signature_string.as_bytes());
-            
-            // Encode signature in Base64
+
             general_purpose::STANDARD.encode(&signature.to_bytes())
         } else if let Ok(private_key) = RsaPrivateKey::from_pkcs1_pem(&self.api_secret) {
-            // Try PKCS1 format
+
             let signing_key = SigningKey::<Sha256>::new(private_key);
             let signature = signing_key.sign(signature_string.as_bytes());
             general_purpose::STANDARD.encode(&signature.to_bytes())
         } else {
-            // If RSA parsing fails, fall back to API key only
-            // Some endpoints may work with just API key
+
+
             warn!("Failed to parse RSA private key from API secret. Using API key only authentication.");
             String::new()
         };
 
-        // Add headers
         headers.insert(
             "X-API-KEY",
             HeaderValue::from_str(&self.api_key)
@@ -364,7 +344,6 @@ impl KalshiClient {
         Ok(headers)
     }
 
-    /// Fetch active events from Kalshi
     pub async fn fetch_events(&self) -> Result<Vec<Event>> {
         let path = "/trade-api/v2/events";
         let headers = self.get_auth_headers("GET", path, "")?;
@@ -411,7 +390,6 @@ impl KalshiClient {
                     .as_str()
                     .map(|s| s.to_string());
 
-                // Parse expiration time
                 let resolution_date = event_data["expected_expiration_time"]
                     .as_str()
                     .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
@@ -432,7 +410,6 @@ impl KalshiClient {
         Ok(events)
     }
 
-    /// Fetch current prices for a Kalshi event
     pub async fn fetch_prices(&self, event_id: &str) -> Result<MarketPrices> {
         let path = format!("/trade-api/v2/events/{}/markets", event_id);
         let headers = self.get_auth_headers("GET", &path, "")?;
@@ -468,7 +445,7 @@ impl KalshiClient {
                 let last_price = market["last_price"]
                     .as_i64()
                     .unwrap_or(0) as f64
-                    / 100.0; // Kalshi uses cents, convert to dollars
+                    / 100.0;
 
                 if subtitle == "Yes" {
                     yes_price = last_price;
@@ -485,23 +462,21 @@ impl KalshiClient {
         Ok(MarketPrices::new(yes_price, no_price, liquidity))
     }
 
-    /// Place a buy order on Kalshi
     pub async fn place_order(
         &self,
         event_id: String,
-        outcome: String, // "YES" or "NO"
+        outcome: String,
         amount: f64,
         price: f64,
     ) -> Result<Option<String>> {
         let path = "/trade-api/v2/orders";
-        
-        // Kalshi order format
+
         let order_data = serde_json::json!({
             "event_ticker": event_id,
             "side": "buy",
             "outcome": outcome,
-            "count": (amount / price) as i64, // Number of shares
-            "price": (price * 100) as i64,    // Kalshi uses cents
+            "count": (amount / price) as i64,
+            "price": (price * 100) as i64,
         });
 
         let body = serde_json::to_string(&order_data)?;
@@ -537,7 +512,6 @@ impl KalshiClient {
         Ok(order_id)
     }
 
-    /// Check if an event is settled and get the outcome
     pub async fn check_settlement(&self, event_id: &str) -> Result<Option<bool>> {
         let path = format!("/trade-api/v2/events/{}", event_id);
         let headers = self.get_auth_headers("GET", &path, "")?;
@@ -551,7 +525,7 @@ impl KalshiClient {
             .context("Failed to check Kalshi settlement")?;
 
         if !response.status().is_success() {
-            return Ok(None); // Event might not exist or not accessible
+            return Ok(None);
         }
 
         let data: serde_json::Value = response
@@ -559,20 +533,18 @@ impl KalshiClient {
             .await
             .context("Failed to parse settlement response")?;
 
-        // Check if event is resolved
         if let Some(status) = data["event"]["status"].as_str() {
             if status == "resolved" {
-                // Get outcome
+
                 if let Some(outcome) = data["event"]["outcome"].as_str() {
                     return Ok(Some(outcome == "Yes" || outcome == "YES"));
                 }
             }
         }
 
-        Ok(None) // Not yet settled
+        Ok(None)
     }
 
-    /// Get account balance
     pub async fn get_balance(&self) -> Result<f64> {
         let path = "/trade-api/v2/portfolio/balance";
         let headers = self.get_auth_headers("GET", path, "")?;

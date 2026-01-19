@@ -65,20 +65,17 @@ impl ShortTermArbitrageBot {
         let event_title = event.title.to_lowercase();
         let event_desc = event.description.to_lowercase();
 
-        // Check category field
         for cat in &self.filters.categories {
             if event_category.contains(&cat.to_lowercase()) {
                 return true;
             }
         }
 
-        // Check title/description for crypto keywords
         let crypto_keywords = [
             "bitcoin", "btc", "ethereum", "eth", "crypto", "cryptocurrency",
             "price", "above", "below", "reach", "hit", "surpass",
         ];
 
-        // Check title/description for sports keywords
         let sports_keywords = [
             "game", "match", "team", "player", "score", "win", "lose",
             "nfl", "nba", "mlb", "soccer", "football", "basketball",
@@ -121,7 +118,7 @@ impl ShortTermArbitrageBot {
         F: Fn(&str, &str) -> Fut,
         Fut: std::future::Future<Output = MarketPrices> + Send,
     {
-        // Filter events
+
         let pm_filtered = self.filter_events(pm_events);
         let kalshi_filtered = self.filter_events(kalshi_events);
 
@@ -129,29 +126,25 @@ impl ShortTermArbitrageBot {
             return Vec::new();
         }
 
-        // Match events
         let matches = self.event_matcher.find_matches(&pm_filtered, &kalshi_filtered);
 
         if matches.is_empty() {
             return Vec::new();
         }
 
-        // Check arbitrage for each matched pair
         let mut opportunities = Vec::new();
 
         for (pm_event, kalshi_event, similarity) in matches {
-            // Fetch prices (placeholder - replace with actual API calls)
+
             let pm_prices = fetch_prices(&pm_event.event_id, "polymarket").await;
             let kalshi_prices = fetch_prices(&kalshi_event.event_id, "kalshi").await;
 
-            // Check liquidity
             if pm_prices.liquidity < self.filters.min_liquidity
                 || kalshi_prices.liquidity < self.filters.min_liquidity
             {
                 continue;
             }
 
-            // Check arbitrage
             if let Some(opportunity) = self.arbitrage_detector.check_arbitrage(&pm_prices, &kalshi_prices) {
                 opportunities.push((pm_event, kalshi_event, opportunity));
             }
@@ -160,7 +153,6 @@ impl ShortTermArbitrageBot {
         opportunities
     }
 
-    /// Scan for Gabagool opportunities (single-platform hedged arbitrage)
     pub async fn scan_gabagool_opportunities<F, Fut, G, Gfut>(
         &self,
         pm_events: &[Event],
@@ -171,9 +163,9 @@ impl ShortTermArbitrageBot {
         F: Fn(&str) -> Fut,
         Fut: std::future::Future<Output = MarketPrices> + Send,
         G: Fn(&str) -> Gfut,
-        Gfut: std::future::Future<Output = (f64, f64, f64, f64)> + Send, // (yes_qty, yes_cost, no_qty, no_cost)
+        Gfut: std::future::Future<Output = (f64, f64, f64, f64)> + Send,
     {
-        // Filter events
+
         let pm_filtered = self.filter_events(pm_events);
 
         if pm_filtered.is_empty() {
@@ -183,18 +175,15 @@ impl ShortTermArbitrageBot {
         let mut opportunities = Vec::new();
 
         for event in &pm_filtered {
-            // Fetch prices
+
             let prices = fetch_prices(&event.event_id).await;
 
-            // Check liquidity
             if prices.liquidity < self.filters.min_liquidity {
                 continue;
             }
 
-            // Get existing position balance
             let (yes_qty, yes_cost, no_qty, no_cost) = get_position_balance(&event.event_id).await;
 
-            // Check for Gabagool opportunity
             if let Some(opportunity) = self.gabagool_detector.check_opportunity(
                 event,
                 &prices,
@@ -240,7 +229,7 @@ impl ShortTermArbitrageBot {
                         opp.roi_percent
                     );
                 }
-                return opportunities; // Return opportunities for execution
+                return opportunities;
             }
         }
     }
