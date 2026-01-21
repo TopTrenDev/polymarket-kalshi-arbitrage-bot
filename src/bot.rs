@@ -61,15 +61,17 @@ impl ShortTermArbitrageBot {
             return true;
         }
 
-        let event_category = event.category.as_ref().map(|s| s.to_lowercase()).unwrap_or_default();
-        let event_title = event.title.to_lowercase();
-        let event_desc = event.description.to_lowercase();
-
-        for cat in &self.filters.categories {
-            if event_category.contains(&cat.to_lowercase()) {
-                return true;
+        if let Some(ref cat) = event.category {
+            let cat_lower = cat.to_lowercase();
+            for filter_cat in &self.filters.categories {
+                if cat_lower.contains(&filter_cat.to_lowercase()) {
+                    return true;
+                }
             }
         }
+
+        let title_lower = event.title.to_lowercase();
+        let desc_lower = event.description.to_lowercase();
 
         let crypto_keywords = [
             "bitcoin", "btc", "ethereum", "eth", "crypto", "cryptocurrency",
@@ -81,16 +83,17 @@ impl ShortTermArbitrageBot {
             "nfl", "nba", "mlb", "soccer", "football", "basketball",
         ];
 
-        let text = event_title + " " + &event_desc;
+        let has_crypto = self.filters.categories.iter().any(|c| c == "crypto");
+        let has_sports = self.filters.categories.iter().any(|c| c == "sports");
 
-        if self.filters.categories.iter().any(|c| c == "crypto") {
-            if crypto_keywords.iter().any(|kw| text.contains(kw)) {
+        if has_crypto {
+            if crypto_keywords.iter().any(|kw| title_lower.contains(kw) || desc_lower.contains(kw)) {
                 return true;
             }
         }
 
-        if self.filters.categories.iter().any(|c| c == "sports") {
-            if sports_keywords.iter().any(|kw| text.contains(kw)) {
+        if has_sports {
+            if sports_keywords.iter().any(|kw| title_lower.contains(kw) || desc_lower.contains(kw)) {
                 return true;
             }
         }
@@ -132,13 +135,28 @@ impl ShortTermArbitrageBot {
             return Vec::new();
         }
 
+        let price_futures: Vec<_> = matches
+            .iter()
+            .map(|(pm_event, kalshi_event, _)| {
+                let pm_id = pm_event.event_id.clone();
+                let kalshi_id = kalshi_event.event_id.clone();
+                let pm_event_clone = pm_event.clone();
+                let kalshi_event_clone = kalshi_event.clone();
+                async move {
+                    let (pm_prices, kalshi_prices) = tokio::join!(
+                        fetch_prices(&pm_id, "polymarket"),
+                        fetch_prices(&kalshi_id, "kalshi")
+                    );
+                    (pm_event_clone, kalshi_event_clone, pm_prices, kalshi_prices)
+                }
+            })
+            .collect();
+
+        let price_results = futures::future::join_all(price_futures).await;
+
         let mut opportunities = Vec::new();
 
-        for (pm_event, kalshi_event, similarity) in matches {
-
-            let pm_prices = fetch_prices(&pm_event.event_id, "polymarket").await;
-            let kalshi_prices = fetch_prices(&kalshi_event.event_id, "kalshi").await;
-
+        for (pm_event, kalshi_event, pm_prices, kalshi_prices) in price_results {
             if pm_prices.liquidity < self.filters.min_liquidity
                 || kalshi_prices.liquidity < self.filters.min_liquidity
             {
@@ -172,20 +190,32 @@ impl ShortTermArbitrageBot {
             return Vec::new();
         }
 
+        let opportunity_futures: Vec<_> = pm_filtered
+            .iter()
+            .map(|event| {
+                let event_id = event.event_id.clone();
+                let event_clone = event.clone();
+                async move {
+                    let (prices, (yes_qty, yes_cost, no_qty, no_cost)) = tokio::join!(
+                        fetch_prices(&event_id),
+                        get_position_balance(&event_id)
+                    );
+                    (event_clone, prices, yes_qty, yes_cost, no_qty, no_cost)
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(opportunity_futures).await;
+
         let mut opportunities = Vec::new();
 
-        for event in &pm_filtered {
-
-            let prices = fetch_prices(&event.event_id).await;
-
+        for (event, prices, yes_qty, yes_cost, no_qty, no_cost) in results {
             if prices.liquidity < self.filters.min_liquidity {
                 continue;
             }
 
-            let (yes_qty, yes_cost, no_qty, no_cost) = get_position_balance(&event.event_id).await;
-
             if let Some(opportunity) = self.gabagool_detector.check_opportunity(
-                event,
+                &event,
                 &prices,
                 yes_qty,
                 no_qty,

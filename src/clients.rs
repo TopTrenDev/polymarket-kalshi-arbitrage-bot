@@ -4,7 +4,47 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use tracing::{info, warn};
+
+struct PriceCacheEntry {
+    prices: MarketPrices,
+    timestamp: Instant,
+}
+
+struct PriceCache {
+    entries: Arc<RwLock<std::collections::HashMap<String, PriceCacheEntry>>>,
+    ttl: Duration,
+}
+
+impl PriceCache {
+    fn new(ttl_secs: u64) -> Self {
+        Self {
+            entries: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            ttl: Duration::from_secs(ttl_secs),
+        }
+    }
+
+    async fn get(&self, key: &str) -> Option<MarketPrices> {
+        let entries = self.entries.read().await;
+        if let Some(entry) = entries.get(key) {
+            if entry.timestamp.elapsed() < self.ttl {
+                return Some(entry.prices.clone());
+            }
+        }
+        None
+    }
+
+    async fn set(&self, key: String, prices: MarketPrices) {
+        let mut entries = self.entries.write().await;
+        entries.insert(key, PriceCacheEntry {
+            prices,
+            timestamp: Instant::now(),
+        });
+    }
+}
 
 #[derive(Clone)]
 pub struct PolymarketClient {
@@ -12,6 +52,7 @@ pub struct PolymarketClient {
     polygon_rpc_url: String,
     wallet_private_key: Option<String>,
     base_url: String,
+    price_cache: Arc<PriceCache>,
 }
 
 impl PolymarketClient {
@@ -122,8 +163,11 @@ impl PolymarketClient {
     }
 
     pub async fn fetch_prices(&self, event_id: &str) -> Result<MarketPrices> {
+        if let Some(cached) = self.price_cache.get(event_id).await {
+            return Ok(cached);
+        }
 
-        let url = format!("https:
+        let url = format!("https://clob.polymarket.com/clob/v1/book");
         
         let response = self
             .http_client
@@ -154,7 +198,9 @@ impl PolymarketClient {
             .as_f64()
             .unwrap_or(0.0);
 
-        Ok(MarketPrices::new(yes_price, no_price, liquidity))
+        let prices = MarketPrices::new(yes_price, no_price, liquidity);
+        self.price_cache.set(event_id.to_string(), prices.clone()).await;
+        Ok(prices)
     }
 
     pub async fn place_order(
@@ -257,6 +303,7 @@ pub struct KalshiClient {
     api_key: String,
     api_secret: String,
     base_url: String,
+    price_cache: Arc<PriceCache>,
 }
 
 impl KalshiClient {
@@ -411,6 +458,10 @@ impl KalshiClient {
     }
 
     pub async fn fetch_prices(&self, event_id: &str) -> Result<MarketPrices> {
+        if let Some(cached) = self.price_cache.get(event_id).await {
+            return Ok(cached);
+        }
+
         let path = format!("/trade-api/v2/events/{}/markets", event_id);
         let headers = self.get_auth_headers("GET", &path, "")?;
 
@@ -459,7 +510,9 @@ impl KalshiClient {
             }
         }
 
-        Ok(MarketPrices::new(yes_price, no_price, liquidity))
+        let prices = MarketPrices::new(yes_price, no_price, liquidity);
+        self.price_cache.set(event_id.to_string(), prices.clone()).await;
+        Ok(prices)
     }
 
     pub async fn place_order(

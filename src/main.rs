@@ -180,30 +180,39 @@ async fn main() -> Result<()> {
         if !cross_platform_opps.is_empty() {
             info!("🔀 Strategy 1: Found {} cross-platform arbitrage opportunities", cross_platform_opps.len());
             
-            for (pm_event, kalshi_event, opp) in cross_platform_opps {
-                info!(
-                    "🚨 Cross-Platform Opportunity: {} - Profit: ${:.4}, ROI: {:.2}%",
-                    pm_event.title,
-                    opp.net_profit,
-                    opp.roi_percent
-                );
+            let trade_futures: Vec<_> = cross_platform_opps
+                .into_iter()
+                .map(|(pm_event, kalshi_event, opp)| {
+                    let executor = trade_executor.clone();
+                    let trade_amount = 100.0;
+                    async move {
+                        info!(
+                            "🚨 Cross-Platform Opportunity: {} - Profit: ${:.4}, ROI: {:.2}%",
+                            pm_event.title,
+                            opp.net_profit,
+                            opp.roi_percent
+                        );
+                        executor
+                            .execute_arbitrage(&opp, &pm_event, &kalshi_event, trade_amount)
+                            .await
+                    }
+                })
+                .collect();
 
-                let trade_amount = 100.0;
-                
-                match trade_executor
-                    .execute_arbitrage(&opp, &pm_event, &kalshi_event, trade_amount)
-                    .await
-                {
-                    Ok(result) => {
-                        if result.success {
+            let trade_results = futures::future::join_all(trade_futures).await;
+
+            for result in trade_results {
+                match result {
+                    Ok(trade_result) => {
+                        if trade_result.success {
                             info!(
                                 "✅ Cross-platform trade executed! PM: {:?}, Kalshi: {:?}",
-                                result.polymarket_order_id, result.kalshi_order_id
+                                trade_result.polymarket_order_id, trade_result.kalshi_order_id
                             );
                         } else {
                             warn!(
                                 "⚠️ Cross-platform trade failed: {}",
-                                result.error.unwrap_or_default()
+                                trade_result.error.unwrap_or_default()
                             );
                         }
                     }
@@ -217,24 +226,35 @@ async fn main() -> Result<()> {
         if !gabagool_opps.is_empty() {
             info!("🎯 Strategy 2: Found {} Gabagool opportunities", gabagool_opps.len());
             
-            for opp in gabagool_opps {
-                info!(
-                    "🎯 Gabagool Opportunity: {} - Buy {} @ ${:.4}, Profit: ${:.4} ({:.2}% ROI), Pair Cost: ${:.4}",
-                    opp.event.title,
-                    opp.cheap_side,
-                    opp.cheap_price,
-                    opp.net_profit,
-                    opp.roi_percent,
-                    opp.pair_cost_after
-                );
+            let gabagool_futures: Vec<_> = gabagool_opps
+                .into_iter()
+                .map(|opp| {
+                    let executor = gabagool_executor.clone();
+                    let trade_amount = 100.0;
+                    async move {
+                        info!(
+                            "🎯 Gabagool Opportunity: {} - Buy {} @ ${:.4}, Profit: ${:.4} ({:.2}% ROI), Pair Cost: ${:.4}",
+                            opp.event.title,
+                            opp.cheap_side,
+                            opp.cheap_price,
+                            opp.net_profit,
+                            opp.roi_percent,
+                            opp.pair_cost_after
+                        );
 
-                if opp.profit_locked {
-                    info!("🔒 Profit already LOCKED for this position!");
-                }
+                        if opp.profit_locked {
+                            info!("🔒 Profit already LOCKED for this position!");
+                        }
 
-                let trade_amount = 100.0;
-                
-                match gabagool_executor.execute_trade(&opp, trade_amount).await {
+                        executor.execute_trade(&opp, trade_amount).await
+                    }
+                })
+                .collect();
+
+            let gabagool_results = futures::future::join_all(gabagool_futures).await;
+
+            for result in gabagool_results {
+                match result {
                     Ok(success) => {
                         if success {
                             info!("✅ Gabagool trade executed successfully!");

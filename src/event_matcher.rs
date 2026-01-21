@@ -2,6 +2,7 @@ use crate::event::Event;
 use chrono::{DateTime, Utc, FixedOffset, TimeZone};
 use regex::Regex;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct MatchConfidence {
@@ -21,6 +22,31 @@ impl MatchConfidence {
     pub fn is_medium_confidence(&self) -> bool {
         self.overall_score >= 0.50 && self.overall_score < 0.75
     }
+}
+
+static DATE_PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+static NUMBER_PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+
+fn get_date_patterns() -> &'static [Regex] {
+    DATE_PATTERNS.get_or_init(|| {
+        vec![
+            Regex::new(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b").unwrap(),
+            Regex::new(r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b").unwrap(),
+            Regex::new(r"\b\d{4}\b").unwrap(),
+            Regex::new(r"\b\d{4}-\d{2}-\d{2}\b").unwrap(),
+            Regex::new(r"\b\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b").unwrap(),
+        ]
+    })
+}
+
+fn get_number_patterns() -> &'static [Regex] {
+    NUMBER_PATTERNS.get_or_init(|| {
+        vec![
+            Regex::new(r"\$[\d,]+(?:\.\d+)?").unwrap(),
+            Regex::new(r"\d+%").unwrap(),
+            Regex::new(r"\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b").unwrap(),
+        ]
+    })
 }
 
 pub struct EventMatcher {
@@ -61,20 +87,11 @@ impl EventMatcher {
     }
 
     pub fn extract_dates(&self, text: &str) -> Vec<String> {
-        let patterns = [
-            r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
-            r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b",
-            r"\b\d{4}\b",
-            r"\b\d{4}-\d{2}-\d{2}\b",
-            r"\b\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b",
-        ];
-
+        let patterns = get_date_patterns();
         let mut dates = Vec::new();
-        for pattern in &patterns {
-            if let Ok(re) = Regex::new(pattern) {
-                for cap in re.captures_iter(text) {
-                    dates.push(cap[0].to_string());
-                }
+        for re in patterns {
+            for cap in re.captures_iter(text) {
+                dates.push(cap[0].to_string());
             }
         }
         dates
@@ -117,18 +134,11 @@ impl EventMatcher {
     }
 
     pub fn extract_numbers(&self, text: &str) -> Vec<String> {
-        let patterns = [
-            r"\$[\d,]+(?:\.\d+)?",
-            r"\d+%",
-            r"\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\b",
-        ];
-
+        let patterns = get_number_patterns();
         let mut numbers = Vec::new();
-        for pattern in &patterns {
-            if let Ok(re) = Regex::new(pattern) {
-                for cap in re.captures_iter(text) {
-                    numbers.push(cap[0].to_string());
-                }
+        for re in patterns {
+            for cap in re.captures_iter(text) {
+                numbers.push(cap[0].to_string());
             }
         }
         numbers
