@@ -30,7 +30,12 @@ A high-performance Rust trading bot implementing advanced arbitrage strategies a
 ✅ **Cross-Platform Arbitrage** - Advanced event matching and price discrepancy detection
 - Intelligent event matching using similarity algorithms
 - Real-time price monitoring across platforms
-- Simultaneous trade execution
+- Simultaneous trade execution between Polymarket (Polygon) and Kalshi
+
+✅ **Gabagool Strategy** - Single-platform hedged arbitrage on Polymarket
+- Detects YES/NO price imbalances on Polymarket
+- Locks in profit by buying both sides when combined cost < $1.00
+- Runs simultaneously with cross-platform arbitrage
 
 ✅ **Position Management** - Comprehensive tracking and settlement system
 - Real-time position monitoring
@@ -47,14 +52,15 @@ A high-performance Rust trading bot implementing advanced arbitrage strategies a
 
 ```
 src/
-├── main.rs                  # Entry point & orchestration
+├── main.rs                  # Entry point & dual-strategy orchestration
 ├── lib.rs                   # Module exports
 ├── event.rs                 # Event data structures
 ├── event_matcher.rs         # Advanced event matching algorithms
-├── arbitrage_detector.rs    # Multi-strategy arbitrage detection
+├── arbitrage_detector.rs    # Cross-platform arbitrage detection
+├── gabagool_executor.rs     # Gabagool trade execution
 ├── bot.rs                   # Bot orchestration & strategy execution
 ├── clients.rs               # Polymarket & Kalshi API clients
-├── trade_executor.rs        # Trade execution engine
+├── trade_executor.rs        # Cross-platform trade execution
 ├── position_tracker.rs      # Position tracking & management
 ├── settlement_checker.rs    # Automated settlement processing
 └── polymarket_blockchain.rs # Polygon blockchain integration
@@ -91,10 +97,26 @@ src/
 
 ## Platforms
 
-| Platform   | Type           | Blockchain      | Currency   |
-| ---------- | -------------- | --------------- | ---------- |
-| Polymarket | Decentralized  | Polygon         | USDC       |
-| Kalshi     | CFTC-regulated | Solana/TRON/BSC | USD/Crypto |
+| Platform   | Type           | Blockchain      | Currency   | Supported |
+| ---------- | -------------- | --------------- | ---------- | --------- |
+| Polymarket | Decentralized  | Polygon         | USDC       | ✅ Full   |
+| Kalshi     | CFTC-regulated | Centralized API | USD        | ✅ Full   |
+
+**Note**: This bot operates exclusively on **Polygon blockchain** (for Polymarket) and uses **Kalshi's REST API**. Cross-platform arbitrage is performed between these two platforms only.
+
+## Trading Strategies
+
+1. **Cross-Platform Arbitrage** (Polymarket ↔ Kalshi)
+   - Matches identical events across platforms
+   - Detects price discrepancies
+   - Executes simultaneous trades to lock in profit
+
+2. **Gabagool Strategy** (Polymarket only)
+   - Single-platform hedged arbitrage
+   - Buys both YES and NO when combined cost < $1.00
+   - Guarantees profit regardless of outcome
+
+Both strategies run **simultaneously** in parallel for maximum opportunity detection.
 
 ## Technical Highlights
 
@@ -103,6 +125,7 @@ src/
 - **Error Handling** - Robust error management with proper propagation
 - **Concurrent Execution** - Parallel strategy execution using tokio
 - **Type Safety** - Strong typing throughout for reliability
+- **Dual Strategy Monitoring** - Simultaneous cross-platform and single-platform arbitrage
 
 ## Contributing
 
