@@ -1,11 +1,8 @@
-
-
-
 use anyhow::{Context, Result};
 use ethers::providers::{Provider, Http, Middleware};
 use ethers::signers::{LocalWallet, Signer};
 use ethers::middleware::SignerMiddleware;
-use ethers::types::{Address, U256, H256, TransactionRequest};
+use ethers::types::{Address, U256, H256, TransactionRequest, U64};
 use std::str::FromStr;
 use tracing::{info, warn, error};
 
@@ -44,23 +41,17 @@ impl PolymarketBlockchain {
         Ok(wallet.address())
     }
 
-
-
     pub async fn get_usdc_balance(&self) -> Result<f64> {
         let address = self.address()?;
         let usdc_address: Address = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
             .parse()
             .context("Invalid USDC contract address")?;
 
-
-
-
-
         let function_selector = [0x70, 0xa0, 0x82, 0x31];
         let mut data = Vec::from(function_selector);
 
         let mut address_bytes = [0u8; 32];
-        address_bytes[12..].copy_from_slice(&address.as_bytes());
+        address_bytes[12..].copy_from_slice(address.as_ref());
         data.extend_from_slice(&address_bytes);
 
         let result = self.provider.call(
@@ -91,21 +82,17 @@ impl PolymarketBlockchain {
         price: f64,
     ) -> Result<Option<String>> {
 
-        let url = "https:
-
-
-
         let wallet = self.wallet.as_ref()
             .context("Wallet required for CLOB orders")?;
 
-        let timestamp = chrono::Utc::now().timestamp();
-        let order_data = serde_json::json!({
+        let _timestamp = chrono::Utc::now().timestamp();
+        let _order_data = serde_json::json!({
             "market": market_id,
             "side": "buy",
             "outcome": outcome,
             "amount": amount,
             "price": price,
-            "timestamp": timestamp,
+            "timestamp": _timestamp,
         });
 
 
@@ -117,7 +104,6 @@ impl PolymarketBlockchain {
         ))
     }
 
-
     pub async fn place_order_via_blockchain(
         &self,
         market_id: &str,
@@ -128,15 +114,7 @@ impl PolymarketBlockchain {
         let wallet = self.wallet.as_ref()
             .context("Wallet required for blockchain orders")?;
 
-        let client = SignerMiddleware::new(self.provider.clone(), wallet.clone());
-
-
-
-
-
-
-
-
+        let _client = SignerMiddleware::new(self.provider.clone(), wallet.clone());
         
         warn!(
             "Blockchain order placement requires Polymarket contract addresses. \
@@ -161,7 +139,7 @@ impl PolymarketBlockchain {
             .context("Failed to get transaction receipt")?;
         
         if let Some(receipt) = receipt {
-            Ok(receipt.status == Some(1.into()))
+            Ok(receipt.status == Some(U64::from(1)))
         } else {
             Ok(false)
         }
