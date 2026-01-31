@@ -47,8 +47,8 @@ impl ShortTermArbitrageBot {
         if let Some(date) = resolution_date {
             let now = Utc::now();
             let time_until_resolution = date - now;
-            let max_time = Duration::hours(self.filters.max_hours_until_resolution);
-            let min_time = Duration::minutes(5);
+            let max_time = Duration::minutes(30);
+            let min_time = Duration::minutes(10);
 
             time_until_resolution >= min_time && time_until_resolution <= max_time
         } else {
@@ -57,48 +57,29 @@ impl ShortTermArbitrageBot {
     }
 
     pub fn matches_category(&self, event: &Event) -> bool {
-        if self.filters.categories.is_empty() {
-            return true;
-        }
-
-        if let Some(ref cat) = event.category {
-            let cat_lower = cat.to_lowercase();
-            for filter_cat in &self.filters.categories {
-                if cat_lower.contains(&filter_cat.to_lowercase()) {
-                    return true;
-                }
-            }
-        }
-
         let title_lower = event.title.to_lowercase();
         let desc_lower = event.description.to_lowercase();
+        let combined_text = format!("{} {}", title_lower, desc_lower);
 
         let crypto_keywords = [
             "bitcoin", "btc", "ethereum", "eth", "crypto", "cryptocurrency",
-            "price", "above", "below", "reach", "hit", "surpass",
+            "sol", "solana", "ada", "cardano", "dot", "polkadot",
+            "matic", "polygon", "avax", "avalanche", "link", "chainlink",
         ];
+        let has_crypto = crypto_keywords.iter().any(|kw| combined_text.contains(kw));
 
-        let sports_keywords = [
-            "game", "match", "team", "player", "score", "win", "lose",
-            "nfl", "nba", "mlb", "soccer", "football", "basketball",
+        let price_prediction_keywords = [
+            "price", "above", "below", "reach", "hit", "surpass", "target",
+            "price prediction", "price target", "price action", "trading",
         ];
+        let has_price_prediction = price_prediction_keywords.iter().any(|kw| combined_text.contains(kw));
 
-        let has_crypto = self.filters.categories.iter().any(|c| c == "crypto");
-        let has_sports = self.filters.categories.iter().any(|c| c == "sports");
+        let timeframe_keywords = [
+            "15 min", "15 minutes", "15m", "15-minute", "15 min", "15mins",
+        ];
+        let has_15min = timeframe_keywords.iter().any(|kw| combined_text.contains(kw));
 
-        if has_crypto {
-            if crypto_keywords.iter().any(|kw| title_lower.contains(kw) || desc_lower.contains(kw)) {
-                return true;
-            }
-        }
-
-        if has_sports {
-            if sports_keywords.iter().any(|kw| title_lower.contains(kw) || desc_lower.contains(kw)) {
-                return true;
-            }
-        }
-
-        false
+        has_crypto && has_price_prediction && has_15min
     }
 
     pub fn filter_events(&self, events: &[Event]) -> Vec<Event> {

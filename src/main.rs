@@ -81,9 +81,9 @@ async fn main() -> Result<()> {
     ));
 
     let filters = MarketFilters {
-        categories: vec!["crypto".to_string(), "sports".to_string()],
-        max_hours_until_resolution: 24,
-        min_liquidity: 100.0,
+        categories: vec!["crypto".to_string()],
+        max_hours_until_resolution: 1,
+        min_liquidity: 200.0,
     };
 
     let bot = ShortTermArbitrageBot::new(
@@ -111,8 +111,11 @@ async fn main() -> Result<()> {
     };
 
     info!("Starting dual-strategy scanning (interval: 60s)");
+    info!("🎯 Target: Crypto price prediction 15-minute markets ONLY");
     info!("  Strategy 1: Cross-platform arbitrage (Polymarket ↔ Kalshi)");
     info!("  Strategy 2: Gabagool hedged arbitrage (Polymarket only)");
+    info!("  Timeframe: 10-30 minutes until resolution");
+    info!("  Requirements: Crypto + Price Prediction + 15-minute timeframe");
     info!("Settlement checking (every 5 minutes)");
     
     let mut scan_interval = tokio::time::interval(Duration::from_secs(60));
