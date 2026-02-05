@@ -38,23 +38,32 @@ async fn main() -> Result<()> {
         warn!("⚠️ POLYMARKET_WALLET_PRIVATE_KEY not set - trading will fail!");
     }
 
-    let kalshi_api_key = std::env::var("KALSHI_API_KEY")
+    // Kalshi uses API ID + RSA Private Key (not traditional API key/secret)
+    // Get API ID (this is your account identifier, sent in X-API-KEY header)
+    let kalshi_api_id = std::env::var("KALSHI_API_ID")
+        .or_else(|_| std::env::var("KALSHI_API_KEY")) // Backward compatibility
         .unwrap_or_else(|_| {
-            warn!("⚠️ KALSHI_API_KEY not set - Kalshi API calls will fail!");
-            "".to_string()
-        });
-    let kalshi_api_secret = std::env::var("KALSHI_API_SECRET")
-        .unwrap_or_else(|_| {
-            warn!("⚠️ KALSHI_API_SECRET not set - Kalshi API calls will fail!");
+            warn!("⚠️ KALSHI_API_ID not set - Kalshi API calls will fail!");
             "".to_string()
         });
     
-    if kalshi_api_key.is_empty() || kalshi_api_secret.is_empty() {
-        error!("❌ Kalshi API credentials missing! Set KALSHI_API_KEY and KALSHI_API_SECRET");
+    // Get RSA private key (PEM format, used for RSA-PSS signing)
+    let kalshi_rsa_key = std::env::var("KALSHI_RSA_PRIVATE_KEY")
+        .or_else(|_| std::env::var("KALSHI_API_SECRET")) // Backward compatibility
+        .unwrap_or_else(|_| {
+            warn!("⚠️ KALSHI_RSA_PRIVATE_KEY not set - Kalshi API calls will fail!");
+            "".to_string()
+        });
+    
+    if kalshi_api_id.is_empty() || kalshi_rsa_key.is_empty() {
+        error!("❌ Kalshi API credentials missing!");
+        error!("   Required: KALSHI_API_ID (your Kalshi API ID)");
+        error!("   Required: KALSHI_RSA_PRIVATE_KEY (your RSA private key in PEM format)");
+        error!("   Note: Kalshi uses API ID + RSA key, NOT traditional API key/secret");
         return Err(anyhow::anyhow!("Missing Kalshi API credentials"));
     }
     
-    let kalshi_client = KalshiClient::new(kalshi_api_key, kalshi_api_secret);
+    let kalshi_client = KalshiClient::new(kalshi_api_id, kalshi_rsa_key);
 
     let polymarket_client = Arc::new(polymarket_client);
     let kalshi_client = Arc::new(kalshi_client);

@@ -80,13 +80,25 @@ src/
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
-2. **Configure `.env`** (copy from `.env.example`):
+2. **Configure `.env`** (create `.env` file with these variables):
 
    ```bash
+   # Polymarket Configuration
    POLYGON_RPC_URL=https://polygon-rpc.com
    POLYMARKET_WALLET_PRIVATE_KEY=0x...
-   KALSHI_API_KEY=your_key
-   KALSHI_API_SECRET=your_secret
+   
+   # Kalshi Configuration
+   # Kalshi uses API ID + RSA Private Key (NOT traditional API key/secret)
+   # Get these from your Kalshi account settings
+   KALSHI_API_ID=your_api_id_here
+   KALSHI_RSA_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
+   MIIEpAIBAAKCAQEA...
+   ...your RSA private key in PEM format...
+   -----END RSA PRIVATE KEY-----"
+   
+   # Note: For backward compatibility, these old names still work:
+   # KALSHI_API_KEY (same as KALSHI_API_ID)
+   # KALSHI_API_SECRET (same as KALSHI_RSA_PRIVATE_KEY)
    ```
 
 3. **Build & Run** (for testing/development):

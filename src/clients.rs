@@ -300,14 +300,23 @@ impl PolymarketClient {
 #[derive(Clone)]
 pub struct KalshiClient {
     http_client: Client,
-    api_key: String,
-    api_secret: String,
+    api_id: String,        // Kalshi API ID (sent in X-API-KEY header)
+    rsa_private_key: String, // RSA private key for signing (PEM format)
     base_url: String,
     price_cache: Arc<PriceCache>,
 }
 
 impl KalshiClient {
-    pub fn new(api_key: String, api_secret: String) -> Self {
+    /// Creates a new KalshiClient
+    /// 
+    /// # Arguments
+    /// * `api_id` - Your Kalshi API ID (not a traditional "key", this is your account identifier)
+    /// * `rsa_private_key` - Your RSA private key in PEM format (PKCS1 or PKCS8)
+    /// 
+    /// # Note
+    /// Kalshi uses RSA-PSS signing for authentication. The API ID goes in X-API-KEY header,
+    /// and the RSA private key is used to sign requests with SHA256.
+    pub fn new(api_id: String, rsa_private_key: String) -> Self {
 
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(10))
@@ -318,8 +327,8 @@ impl KalshiClient {
         
         Self {
             http_client,
-            api_key,
-            api_secret,
+            api_id,
+            rsa_private_key,
             base_url: "https:
         }
     }
@@ -344,29 +353,25 @@ impl KalshiClient {
         let signature_string = format!("{}\n{}\n{}\n{}", timestamp, method, path, body);
 
 
-        let signature_b64 = if let Ok(private_key) = RsaPrivateKey::from_pkcs8_pem(&self.api_secret) {
-
+        // Parse RSA private key (supports both PKCS8 and PKCS1 PEM formats)
+        let signature_b64 = if let Ok(private_key) = RsaPrivateKey::from_pkcs8_pem(&self.rsa_private_key) {
             let signing_key = SigningKey::<Sha256>::new(private_key);
-
             let signature = signing_key.sign(signature_string.as_bytes());
-
             general_purpose::STANDARD.encode(&signature.to_bytes())
-        } else if let Ok(private_key) = RsaPrivateKey::from_pkcs1_pem(&self.api_secret) {
-
+        } else if let Ok(private_key) = RsaPrivateKey::from_pkcs1_pem(&self.rsa_private_key) {
             let signing_key = SigningKey::<Sha256>::new(private_key);
             let signature = signing_key.sign(signature_string.as_bytes());
             general_purpose::STANDARD.encode(&signature.to_bytes())
         } else {
-
-
-            warn!("Failed to parse RSA private key from API secret. Using API key only authentication.");
+            warn!("Failed to parse RSA private key. Expected PEM format (PKCS1 or PKCS8). Authentication may fail.");
             String::new()
         };
 
+        // Kalshi uses X-API-KEY header with the API ID (not a traditional API key)
         headers.insert(
             "X-API-KEY",
-            HeaderValue::from_str(&self.api_key)
-                .context("Invalid API key")?,
+            HeaderValue::from_str(&self.api_id)
+                .context("Invalid API ID")?,
         );
         
         headers.insert(
