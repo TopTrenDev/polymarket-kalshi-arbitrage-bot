@@ -85,20 +85,11 @@ src/
    ```bash
    # Polymarket Configuration
    POLYGON_RPC_URL=https://polygon-rpc.com
-   POLYMARKET_WALLET_PRIVATE_KEY=0x...
+   POLYMARKET_WALLET_PRIVATE_KEY=
    
    # Kalshi Configuration
-   # Kalshi uses API ID + RSA Private Key (NOT traditional API key/secret)
-   # Get these from your Kalshi account settings
    KALSHI_API_ID=your_api_id_here
-   KALSHI_RSA_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
-   MIIEpAIBAAKCAQEA...
-   ...your RSA private key in PEM format...
-   -----END RSA PRIVATE KEY-----"
-   
-   # Note: For backward compatibility, these old names still work:
-   # KALSHI_API_KEY (same as KALSHI_API_ID)
-   # KALSHI_API_SECRET (same as KALSHI_RSA_PRIVATE_KEY)
+   KALSHI_RSA_PRIVATE_KEY=
    ```
 
 3. **Build & Run** (for testing/development):
@@ -109,12 +100,18 @@ src/
 
 ## Platforms
 
-| Platform   | Type           | Blockchain      | Currency   | Supported |
+| Platform   | Type           | Access Method   | Currency   | Supported |
 | ---------- | -------------- | --------------- | ---------- | --------- |
-| Polymarket | Decentralized  | Polygon         | USDC       | ✅ Full   |
-| Kalshi     | CFTC-regulated | Centralized API | USD        | ✅ Full   |
+| Polymarket | Decentralized  | Polygon (on-chain) | USDC       | ⚠️ Partial<sup>1</sup> |
+| Kalshi     | CFTC-regulated | REST API (centralized) | USD        | ✅ Full   |
 
-**Note**: This bot operates exclusively on **Polygon blockchain** (for Polymarket) and uses **Kalshi's REST API**. Cross-platform arbitrage is performed between these two platforms only.
+<sup>1</sup> Polymarket: Blockchain trading fully implemented. CLOB API requires EIP-712 signing (not yet implemented).
+
+**Note**: 
+- **Polymarket**: This bot interacts via **Polygon blockchain** (on-chain trading with USDC)
+- **Kalshi**: This bot interacts via **REST API** (`trading-api.kalshi.com`) - centralized API access
+- While Kalshi may have blockchain infrastructure on the backend, the bot uses their centralized REST API for trading
+- Cross-platform arbitrage is performed between these two platforms only
 
 ## Trading Strategies
 
