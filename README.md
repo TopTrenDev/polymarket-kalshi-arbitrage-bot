@@ -102,10 +102,9 @@ src/
 
 | Platform   | Type           | Access Method   | Currency   | Supported |
 | ---------- | -------------- | --------------- | ---------- | --------- |
-| Polymarket | Decentralized  | Polygon (on-chain) | USDC       | ⚠️ Partial<sup>1</sup> |
+| Polymarket | Decentralized  | Polygon (on-chain) | USDC       | ✅ Full|
 | Kalshi     | CFTC-regulated | REST API (centralized) | USD        | ✅ Full   |
 
-<sup>1</sup> Polymarket: Blockchain trading fully implemented. CLOB API requires EIP-712 signing (not yet implemented).
 
 **Note**: 
 - **Polymarket**: This bot interacts via **Polygon blockchain** (on-chain trading with USDC)
