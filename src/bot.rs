@@ -10,6 +10,7 @@ pub struct MarketFilters {
     pub categories: Vec<String>,
     pub max_hours_until_resolution: i64,
     pub min_liquidity: f64,
+    pub coin_filter: Option<String>,
 }
 
 impl Default for MarketFilters {
@@ -18,6 +19,7 @@ impl Default for MarketFilters {
             categories: vec!["crypto".to_string(), "sports".to_string()],
             max_hours_until_resolution: 24,
             min_liquidity: 100.0,
+            coin_filter: None,
         }
     }
 }
@@ -57,29 +59,19 @@ impl ShortTermArbitrageBot {
     }
 
     pub fn matches_category(&self, event: &Event) -> bool {
-        let title_lower = event.title.to_lowercase();
-        let desc_lower = event.description.to_lowercase();
-        let combined_text = format!("{} {}", title_lower, desc_lower);
+        event.is_15m_crypto_market() && self.matches_coin_filter(event)
+    }
 
-        let crypto_keywords = [
-            "bitcoin", "btc", "ethereum", "eth", "crypto", "cryptocurrency",
-            "sol", "solana", "ada", "cardano", "dot", "polkadot",
-            "matic", "polygon", "avax", "avalanche", "link", "chainlink",
-        ];
-        let has_crypto = crypto_keywords.iter().any(|kw| combined_text.contains(kw));
-
-        let price_prediction_keywords = [
-            "price", "above", "below", "reach", "hit", "surpass", "target",
-            "price prediction", "price target", "price action", "trading",
-        ];
-        let has_price_prediction = price_prediction_keywords.iter().any(|kw| combined_text.contains(kw));
-
-        let timeframe_keywords = [
-            "15 min", "15 minutes", "15m", "15-minute", "15 min", "15mins",
-        ];
-        let has_15min = timeframe_keywords.iter().any(|kw| combined_text.contains(kw));
-
-        has_crypto && has_price_prediction && has_15min
+    fn matches_coin_filter(&self, event: &Event) -> bool {
+        let filter = match &self.filters.coin_filter {
+            None => return true,
+            Some(s) if s.is_empty() || s.eq_ignore_ascii_case("all") => return true,
+            Some(s) => s.to_lowercase(),
+        };
+        match event.coin_from_slug() {
+            Some(coin) => coin == filter,
+            None => true,
+        }
     }
 
     pub fn filter_events(&self, events: &[Event]) -> Vec<Event> {

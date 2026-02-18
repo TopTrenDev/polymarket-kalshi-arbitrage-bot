@@ -85,6 +85,19 @@ impl PolymarketClient {
     }
 
     pub async fn fetch_events(&self) -> Result<Vec<Event>> {
+        let use_gamma = std::env::var("POLYMARKET_USE_GAMMA")
+            .unwrap_or_else(|_| "1".to_string());
+        if use_gamma == "1" || use_gamma.eq_ignore_ascii_case("true") {
+            let tag_slug = std::env::var("POLYMARKET_TAG_SLUG").ok();
+            let tag_slug = tag_slug.as_deref().filter(|s| !s.is_empty());
+            if let Ok(events) = self
+                .fetch_events_from_gamma(tag_slug, 200)
+                .await
+            {
+                return Ok(events);
+            }
+            tracing::warn!("Gamma API fetch failed, falling back to GraphQL");
+        }
 
         let query = r#"
             query GetMarkets($active: Boolean) {
@@ -155,8 +168,104 @@ impl PolymarketClient {
                     resolution_date,
                     category,
                     tags: Vec::new(),
+                    slug: None,
                 });
             }
+        }
+
+        Ok(events)
+    }
+
+    const GAMMA_API_BASE: &str = "https://gamma-api.polymarket.com";
+
+    pub async fn fetch_events_from_gamma(
+        &self,
+        tag_slug: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<Event>> {
+        let limit = limit.min(200);
+        let mut query = vec![
+            ("active", "true"),
+            ("closed", "false"),
+            ("limit", limit.to_string()),
+        ];
+        if let Some(t) = tag_slug {
+            if !t.is_empty() {
+                query.push(("tag_slug", t));
+            }
+        }
+
+        let url = format!("{}/events", Self::GAMMA_API_BASE);
+        let response = self
+            .http_client
+            .get(&url)
+            .query(&query)
+            .send()
+            .await
+            .context("Failed to fetch Polymarket events from Gamma API")?;
+
+        if !response.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "Gamma API error: {} - {}",
+                response.status(),
+                response.text().await.unwrap_or_default()
+            ));
+        }
+
+        let data: Vec<serde_json::Value> = response
+            .json()
+            .await
+            .context("Failed to parse Gamma API response")?;
+
+        let mut events = Vec::new();
+        for event_data in data {
+            let slug = event_data["slug"].as_str().map(|s| s.to_string());
+            let title = event_data["title"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            let description = event_data["subtitle"]
+                .as_str()
+                .unwrap_or(event_data["description"].as_str().unwrap_or(""))
+                .to_string();
+            let resolution_date = event_data["endDate"]
+                .as_str()
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&Utc));
+            let category = event_data["category"].as_str().map(|s| s.to_string());
+
+            let tags: Vec<String> = event_data["tags"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|t| t["slug"].as_str().or_else(|| t["label"].as_str()))
+                        .map(|s| s.to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let markets = event_data["markets"].as_array();
+            let event_id = markets
+                .and_then(|m| m.first())
+                .and_then(|m| m["conditionId"].as_str().or_else(|| m["id"].as_str()))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    event_data["id"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string()
+                });
+
+            events.push(Event {
+                platform: "polymarket".to_string(),
+                event_id,
+                title,
+                description,
+                resolution_date,
+                category,
+                tags,
+                slug,
+            });
         }
 
         Ok(events)
@@ -399,12 +508,13 @@ impl KalshiClient {
     pub async fn fetch_events(&self) -> Result<Vec<Event>> {
         let path = "/trade-api/v2/events";
         let headers = self.get_auth_headers("GET", path, "")?;
+        let query_params = self.events_query_params();
 
         let response = self
             .http_client
             .get(&format!("{}{}", self.base_url, path))
             .headers(headers)
-            .query(&[("status", "open"), ("limit", "1000")])
+            .query(&query_params)
             .send()
             .await
             .context("Failed to fetch Kalshi events")?;
@@ -436,6 +546,7 @@ impl KalshiClient {
                     .to_string();
                 let subtitle = event_data["subtitle"]
                     .as_str()
+                    .or_else(|| event_data["sub_title"].as_str())
                     .unwrap_or("")
                     .to_string();
                 let category = event_data["category"]
@@ -447,19 +558,38 @@ impl KalshiClient {
                     .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.with_timezone(&Utc));
 
+                let series_ticker = event_data["series_ticker"]
+                    .as_str()
+                    .map(|s| s.to_string());
+                let tags = series_ticker.into_iter().collect::<Vec<_>>();
+
                 events.push(Event {
                     platform: "kalshi".to_string(),
-                    event_id: event_ticker,
+                    event_id: event_ticker.clone(),
                     title,
                     description: subtitle,
                     resolution_date,
                     category,
-                    tags: Vec::new(),
+                    tags,
+                    slug: Some(event_ticker),
                 });
             }
         }
 
         Ok(events)
+    }
+
+    fn events_query_params(&self) -> Vec<(&'static str, String)> {
+        let mut params = vec![
+            ("status", "open".to_string()),
+            ("limit", "200".to_string()),
+        ];
+        if let Ok(st) = std::env::var("KALSHI_SERIES_TICKER") {
+            if !st.is_empty() {
+                params.push(("series_ticker", st));
+            }
+        }
+        params
     }
 
     pub async fn fetch_prices(&self, event_id: &str) -> Result<MarketPrices> {

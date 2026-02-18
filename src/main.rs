@@ -89,10 +89,21 @@ async fn main() -> Result<()> {
         position_tracker.clone(),
     ));
 
+    let coin_filter = std::env::var("COIN_FILTER").ok();
+    let coin_filter = coin_filter.as_ref().and_then(|s| {
+        let s = s.trim();
+        if s.is_empty() || s.eq_ignore_ascii_case("all") {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    });
+
     let filters = MarketFilters {
         categories: vec!["crypto".to_string()],
         max_hours_until_resolution: 1,
         min_liquidity: 200.0,
+        coin_filter: coin_filter.clone(),
     };
 
     let bot = ShortTermArbitrageBot::new(
@@ -124,7 +135,14 @@ async fn main() -> Result<()> {
     info!("  Strategy 1: Cross-platform arbitrage (Polymarket ↔ Kalshi)");
     info!("  Strategy 2: Gabagool hedged arbitrage (Polymarket only)");
     info!("  Timeframe: 10-30 minutes until resolution");
-    info!("  Requirements: Crypto + Price Prediction + 15-minute timeframe");
+    info!("  Requirements: Slug/tag 15m crypto or keywords (Crypto + Price + 15min)");
+    if let Some(coin) = &coin_filter {
+        info!("  Coin filter: {} only", coin);
+    } else {
+        info!("  Coin filter: all (BTC/ETH/SOL)");
+    }
+    info!("  Polymarket: Gamma API when POLYMARKET_USE_GAMMA=1, tag_slug from POLYMARKET_TAG_SLUG");
+    info!("  Kalshi: series_ticker from KALSHI_SERIES_TICKER when set");
     info!("Settlement checking (every 5 minutes)");
     
     let mut scan_interval = tokio::time::interval(Duration::from_secs(60));

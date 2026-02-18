@@ -8,7 +8,7 @@ A high-performance Rust trading bot implementing advanced arbitrage strategies a
 
 ## ⚠️ Disclaimer
 
-**This is not a complete, production-ready codebase.** This project is continuously being improved and developed. 
+**This is not a complete, production-ready codebase.** This project is continuously being improved and developed.
 
 - ⚠️ **Do not use directly in production** without thorough testing and review
 - 🔧 **Code is subject to change** - APIs, logic, and structure may be updated
@@ -22,28 +22,33 @@ A high-performance Rust trading bot implementing advanced arbitrage strategies a
 ### Implemented Trading Logic
 
 ✅ **Polymarket Trading Logic** - Full implementation of Polymarket's blockchain-based trading system
+
 - Polygon network integration with ethers-rs
 - USDC balance management
 - Conditional token contract interactions
 - Order placement and execution
 
 ✅ **Cross-Platform Arbitrage** - Advanced event matching and price discrepancy detection
+
 - Intelligent event matching using similarity algorithms
 - Real-time price monitoring across platforms
 - Simultaneous trade execution between Polymarket (Polygon) and Kalshi
 
 ✅ **Gabagool Strategy** - Single-platform hedged arbitrage on Polymarket
+
 - Detects YES/NO price imbalances on Polymarket
 - Locks in profit by buying both sides when combined cost < $1.00
 - Runs simultaneously with cross-platform arbitrage
 
 ✅ **Position Management** - Comprehensive tracking and settlement system
+
 - Real-time position monitoring
 - Automatic settlement checking
 - Profit/loss calculation
 - Multi-platform balance tracking
 
 ✅ **API Integration** - Production-ready clients for both platforms
+
 - Polymarket GraphQL/CLOB API
 - Kalshi REST API with RSA-PSS authentication
 - Error handling and retry mechanisms
@@ -80,17 +85,10 @@ src/
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
-2. **Configure `.env`** (create `.env` file with these variables):
-
-   ```bash
-   # Polymarket Configuration
-   POLYGON_RPC_URL=https://polygon-rpc.com
-   POLYMARKET_WALLET_PRIVATE_KEY=
-   
-   # Kalshi Configuration
-   KALSHI_API_ID=your_api_id_here
-   KALSHI_RSA_PRIVATE_KEY=
-   ```
+2. **Configure `.env`** (create from `.env.example`):
+   - **Polymarket:** `POLYGON_RPC_URL`, `POLYMARKET_WALLET_PRIVATE_KEY`
+   - **Kalshi:** `KALSHI_API_ID`, `KALSHI_RSA_PRIVATE_KEY`
+   - **15m crypto (optional):** `POLYMARKET_USE_GAMMA=1`, `POLYMARKET_TAG_SLUG=crypto`, `KALSHI_SERIES_TICKER`, `COIN_FILTER=btc|eth|sol`
 
 3. **Build & Run** (for testing/development):
    ```bash
@@ -100,17 +98,16 @@ src/
 
 ## Platforms
 
-| Platform   | Type           | Access Method   | Currency   | Supported |
-| ---------- | -------------- | --------------- | ---------- | --------- |
-| Polymarket | Decentralized  | Polygon (on-chain) | USDC       | ✅ Full|
-| Kalshi     | CFTC-regulated | REST API (centralized) | USD        | ✅ Full   |
+| Platform   | Type           | Access Method                    | Currency | Supported |
+| ---------- | -------------- | -------------------------------- | -------- | --------- |
+| Polymarket | Decentralized  | Polygon (on-chain)               | USDC     | ✅ Full   |
+| Kalshi     | CFTC-regulated | On-chain (Solana, data 100+ chains) + REST API | USD      | ✅ Full   |
 
+**Note**:
 
-**Note**: 
-- **Polymarket**: This bot interacts via **Polygon blockchain** (on-chain trading with USDC)
-- **Kalshi**: This bot interacts via **REST API** (`trading-api.kalshi.com`) - centralized API access
-- While Kalshi may have blockchain infrastructure on the backend, the bot uses their centralized REST API for trading
-- Cross-platform arbitrage is performed between these two platforms only
+- **Polymarket**: This bot interacts via **Polygon** (on-chain trading with USDC).
+- **Kalshi**: Kalshi is on-chain (tokenized event contracts on **Solana**, real-time data via Pyth on 100+ chains). This bot uses **Kalshi’s REST API** only (`trading-api.kalshi.com`) for trading, not their Solana/on-chain layer.
+- Cross-platform arbitrage is performed between these two platforms only.
 
 ## Trading Strategies
 
