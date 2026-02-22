@@ -53,21 +53,32 @@ A high-performance Rust trading bot implementing advanced arbitrage strategies a
 - Kalshi REST API with RSA-PSS authentication
 - Error handling and retry mechanisms
 
+✅ **Kalshi monitoring (TypeScript-aligned)** - Config, best bid/ask, dry run, monitor logging
+
+- Centralized **config** (`KALSHI_DEMO`, `KALSHI_BASE_PATH`, PEM from file or env)
+- **Best bid/ask** via `GET /markets/{ticker}` and `/markets/{ticker}/orderbook`
+- **Dry run**: `DRY_RUN=true` or `KALSHI_DRY_RUN=true` (no real orders)
+- **Monitor logger**: 15m slot log files `logs/monitor_{YYYY-MM-DD}_{HH}-{00|15|30|45}.log`
+
+For **Rust crates and API references** for Kalshi and Polymarket, see [docs/RUST_APIS.md](docs/RUST_APIS.md).
+
 ## Architecture
 
 ```
 src/
 ├── main.rs                  # Entry point & dual-strategy orchestration
 ├── lib.rs                   # Module exports
-├── event.rs                 # Event data structures
+├── config.rs                # Kalshi config (demo/prod, PEM, dry run)
+├── event.rs                 # Event data structures (MarketPrices with yes_ask/no_ask)
 ├── event_matcher.rs         # Advanced event matching algorithms
 ├── arbitrage_detector.rs    # Cross-platform arbitrage detection
 ├── gabagool_executor.rs     # Gabagool trade execution
 ├── bot.rs                   # Bot orchestration & strategy execution
-├── clients.rs               # Polymarket & Kalshi API clients
+├── clients.rs               # Polymarket & Kalshi API clients (get_market, orderbook)
 ├── trade_executor.rs        # Cross-platform trade execution
 ├── position_tracker.rs      # Position tracking & management
 ├── settlement_checker.rs    # Automated settlement processing
+├── monitor_logger.rs         # 15m slot log files (TypeScript-aligned)
 └── polymarket_blockchain.rs # Polygon blockchain integration
 ```
 
@@ -87,7 +98,8 @@ src/
 
 2. **Configure `.env`** (create from `.env.example`):
    - **Polymarket:** `POLYGON_RPC_URL`, `POLYMARKET_WALLET_PRIVATE_KEY`
-   - **Kalshi:** `KALSHI_API_ID`, `KALSHI_RSA_PRIVATE_KEY`
+   - **Kalshi:** `KALSHI_API_ID`, `KALSHI_RSA_PRIVATE_KEY` (or `KALSHI_PRIVATE_KEY_PATH` to a PEM file)
+   - **Kalshi optional:** `KALSHI_DEMO=true`, `KALSHI_BASE_PATH`, `DRY_RUN=true` / `KALSHI_DRY_RUN=true`
    - **15m crypto (optional):** `POLYMARKET_USE_GAMMA=1`, `POLYMARKET_TAG_SLUG=crypto`, `KALSHI_SERIES_TICKER`, `COIN_FILTER=btc|eth|sol`
 
 3. **Build & Run** (for testing/development):
@@ -95,6 +107,14 @@ src/
    cargo build --release
    cargo run --release
    ```
+
+4. **Kalshi price monitor** (optional, TypeScript-aligned):
+   ```bash
+   cargo run --release --bin monitor
+   ```
+   Polls best YES/NO ask for a Kalshi market and logs to console and to `logs/monitor_{YYYY-MM-DD}_{HH}-{00|15|30|45}.log`.  
+   Env: `KALSHI_MONITOR_INTERVAL_MS` (default 2000), `KALSHI_MONITOR_TICKER` (optional; else first open KXBTC15M market).  
+   Ctrl+C to stop.
 
 ## Platforms
 

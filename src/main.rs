@@ -1,5 +1,6 @@
 use anyhow::Result;
 use polymarket_kalshi_arbitrage_bot::{
+    config::KalshiConfig,
     bot::{MarketFilters, ShortTermArbitrageBot},
     clients::{KalshiClient, PolymarketClient},
     event::MarketPrices,
@@ -38,32 +39,17 @@ async fn main() -> Result<()> {
         warn!("⚠️ POLYMARKET_WALLET_PRIVATE_KEY not set - trading will fail!");
     }
 
-    // Kalshi uses API ID + RSA Private Key (not traditional API key/secret)
-    // Get API ID (this is your account identifier, sent in X-API-KEY header)
-    let kalshi_api_id = std::env::var("KALSHI_API_ID")
-        .or_else(|_| std::env::var("KALSHI_API_KEY")) // Backward compatibility
-        .unwrap_or_else(|_| {
-            warn!("⚠️ KALSHI_API_ID not set - Kalshi API calls will fail!");
-            "".to_string()
-        });
-    
-    // Get RSA private key (PEM format, used for RSA-PSS signing)
-    let kalshi_rsa_key = std::env::var("KALSHI_RSA_PRIVATE_KEY")
-        .or_else(|_| std::env::var("KALSHI_API_SECRET")) // Backward compatibility
-        .unwrap_or_else(|_| {
-            warn!("⚠️ KALSHI_RSA_PRIVATE_KEY not set - Kalshi API calls will fail!");
-            "".to_string()
-        });
-    
-    if kalshi_api_id.is_empty() || kalshi_rsa_key.is_empty() {
+    let kalshi_config = KalshiConfig::from_env();
+    if kalshi_config.api_id.is_empty() || kalshi_config.rsa_private_key.is_empty() {
         error!("❌ Kalshi API credentials missing!");
-        error!("   Required: KALSHI_API_ID (your Kalshi API ID)");
-        error!("   Required: KALSHI_RSA_PRIVATE_KEY (your RSA private key in PEM format)");
-        error!("   Note: Kalshi uses API ID + RSA key, NOT traditional API key/secret");
+        error!("   Required: KALSHI_API_ID (or KALSHI_API_KEY)");
+        error!("   Required: KALSHI_RSA_PRIVATE_KEY or KALSHI_PRIVATE_KEY_PATH (PEM file)");
         return Err(anyhow::anyhow!("Missing Kalshi API credentials"));
     }
-    
-    let kalshi_client = KalshiClient::new(kalshi_api_id, kalshi_rsa_key);
+    if kalshi_config.dry_run {
+        info!("🔒 DRY RUN enabled (DRY_RUN or KALSHI_DRY_RUN=true) — no real orders will be placed");
+    }
+    let kalshi_client = KalshiClient::from_config(&kalshi_config);
 
     let polymarket_client = Arc::new(polymarket_client);
     let kalshi_client = Arc::new(kalshi_client);

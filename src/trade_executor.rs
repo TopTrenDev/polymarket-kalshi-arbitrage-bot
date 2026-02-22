@@ -148,7 +148,7 @@ impl TradeExecutor {
             action_type, outcome, max_price, amount
         );
 
-        match self
+        let order_id = match self
             .polymarket_client
             .place_order(
                 event.event_id.clone(),
@@ -158,15 +158,14 @@ impl TradeExecutor {
             )
             .await
         {
-            Ok(order_id) => order_id,
+            Ok(id) => id,
             Err(e) => {
                 error!("Polymarket order failed: {}", e);
                 return Err(e);
             }
-        }
-        
-        info!("✅ Polymarket order placed: {}", order_id);
-        Ok(Some(order_id))
+        };
+        info!("✅ Polymarket order placed: {}", order_id.as_deref().unwrap_or("(no id)"));
+        Ok(order_id)
     }
 
     async fn execute_kalshi_trade(
@@ -182,7 +181,7 @@ impl TradeExecutor {
             action_type, outcome, price, amount
         );
 
-        match self
+        let order_id = match self
             .kalshi_client
             .place_order(
                 event.event_id.clone(),
@@ -192,15 +191,14 @@ impl TradeExecutor {
             )
             .await
         {
-            Ok(order_id) => order_id,
+            Ok(id) => id,
             Err(e) => {
                 error!("Kalshi order failed: {}", e);
                 return Err(e);
             }
-        }
-        
-        info!("✅ Kalshi order placed: {}", order_id);
-        Ok(Some(order_id))
+        };
+        info!("✅ Kalshi order placed: {}", order_id.as_deref().unwrap_or("(no id)"));
+        Ok(order_id)
     }
 
     pub async fn cancel_order(&self, platform: &str, order_id: &str) -> Result<()> {

@@ -107,6 +107,9 @@ pub struct MarketPrices {
     pub yes: f64,
     pub no: f64,
     pub liquidity: f64,
+    pub yes_ask: Option<f64>,
+    pub no_ask: Option<f64>,
+    pub last_price: Option<f64>,
 }
 
 impl MarketPrices {
@@ -115,11 +118,29 @@ impl MarketPrices {
             yes,
             no,
             liquidity,
+            yes_ask: None,
+            no_ask: None,
+            last_price: None,
         }
+    }
+
+    pub fn with_asks(mut self, yes_ask: f64, no_ask: f64, last_price: Option<f64>) -> Self {
+        self.yes_ask = Some(yes_ask);
+        self.no_ask = Some(no_ask);
+        self.last_price = last_price;
+        self
     }
 
     pub fn validate(&self) -> bool {
         (self.yes + self.no - 1.0).abs() < 0.01
+    }
+
+    pub fn yes_ask_or_fallback(&self) -> f64 {
+        self.yes_ask.unwrap_or(self.yes)
+    }
+
+    pub fn no_ask_or_fallback(&self) -> f64 {
+        self.no_ask.unwrap_or(self.no)
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::config::KalshiConfig;
 use crate::event::{Event, MarketPrices};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -319,7 +320,10 @@ impl PolymarketClient {
         amount: f64,
         max_price: f64,
     ) -> Result<Option<String>> {
-
+        if std::env::var("DRY_RUN").map(|s| s.eq_ignore_ascii_case("true")).unwrap_or(false) {
+            info!("[DRY RUN] Would place Polymarket order: event={} outcome={} amount={} max_price={}", event_id, outcome, amount, max_price);
+            return Ok(Some("dry-run".to_string()));
+        }
         let private_key = self
             .wallet_private_key
             .as_ref()
@@ -406,39 +410,50 @@ impl PolymarketClient {
     }
 }
 
+const KALSHI_DEFAULT_BASE: &str = "https://trading-api.kalshi.com/trade-api/v2";
+
 #[derive(Clone)]
 pub struct KalshiClient {
     http_client: Client,
-    api_id: String,        // Kalshi API ID (sent in X-API-KEY header)
-    rsa_private_key: String, // RSA private key for signing (PEM format)
+    api_id: String,
+    rsa_private_key: String,
     base_url: String,
     price_cache: Arc<PriceCache>,
+    pub dry_run: bool,
 }
 
 impl KalshiClient {
-    /// Creates a new KalshiClient
-    /// 
-    /// # Arguments
-    /// * `api_id` - Your Kalshi API ID (not a traditional "key", this is your account identifier)
-    /// * `rsa_private_key` - Your RSA private key in PEM format (PKCS1 or PKCS8)
-    /// 
-    /// # Note
-    /// Kalshi uses RSA-PSS signing for authentication. The API ID goes in X-API-KEY header,
-    /// and the RSA private key is used to sign requests with SHA256.
-    pub fn new(api_id: String, rsa_private_key: String) -> Self {
-
+    pub fn from_config(config: &KalshiConfig) -> Self {
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
             .unwrap_or_else(|_| Client::new());
-        
+        Self {
+            http_client,
+            api_id: config.api_id.clone(),
+            rsa_private_key: config.rsa_private_key.clone(),
+            base_url: config.base_url.trim_end_matches('/').to_string(),
+            price_cache: Arc::new(PriceCache::new(60)),
+            dry_run: config.dry_run,
+        }
+    }
+
+    pub fn new(api_id: String, rsa_private_key: String) -> Self {
+        let http_client = Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
             http_client,
             api_id,
             rsa_private_key,
-            base_url: "https:
+            base_url: KALSHI_DEFAULT_BASE.to_string(),
+            price_cache: Arc::new(PriceCache::new(60)),
+            dry_run: false,
         }
     }
 
@@ -462,7 +477,6 @@ impl KalshiClient {
         let signature_string = format!("{}\n{}\n{}\n{}", timestamp, method, path, body);
 
 
-        // Parse RSA private key (supports both PKCS8 and PKCS1 PEM formats)
         let signature_b64 = if let Ok(private_key) = RsaPrivateKey::from_pkcs8_pem(&self.rsa_private_key) {
             let signing_key = SigningKey::<Sha256>::new(private_key);
             let signature = signing_key.sign(signature_string.as_bytes());
@@ -476,7 +490,6 @@ impl KalshiClient {
             String::new()
         };
 
-        // Kalshi uses X-API-KEY header with the API ID (not a traditional API key)
         headers.insert(
             "X-API-KEY",
             HeaderValue::from_str(&self.api_id)
@@ -506,7 +519,7 @@ impl KalshiClient {
     }
 
     pub async fn fetch_events(&self) -> Result<Vec<Event>> {
-        let path = "/trade-api/v2/events";
+        let path = "/events";
         let headers = self.get_auth_headers("GET", path, "")?;
         let query_params = self.events_query_params();
 
@@ -592,12 +605,49 @@ impl KalshiClient {
         params
     }
 
+    pub async fn fetch_open_market_tickers(&self, series_ticker: &str) -> Result<Vec<String>> {
+        let path = "/markets";
+        let headers = self.get_auth_headers("GET", path, "")?;
+        let response = self
+            .http_client
+            .get(&format!("{}{}", self.base_url, path))
+            .headers(headers)
+            .query(&[
+                ("series_ticker", series_ticker),
+                ("status", "open"),
+                ("limit", "200"),
+            ])
+            .send()
+            .await
+            .context("Failed to fetch Kalshi markets")?;
+        if !response.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "Kalshi markets API error: {} - {}",
+                response.status(),
+                response.text().await.unwrap_or_default()
+            ));
+        }
+        let data: serde_json::Value = response
+            .json()
+            .await
+            .context("Failed to parse Kalshi markets response")?;
+        let tickers: Vec<String> = data["markets"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m["ticker"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(tickers)
+    }
+
     pub async fn fetch_prices(&self, event_id: &str) -> Result<MarketPrices> {
         if let Some(cached) = self.price_cache.get(event_id).await {
             return Ok(cached);
         }
 
-        let path = format!("/trade-api/v2/events/{}/markets", event_id);
+        let path = format!("/events/{}/markets", event_id);
         let headers = self.get_auth_headers("GET", &path, "")?;
 
         let response = self
@@ -657,7 +707,11 @@ impl KalshiClient {
         amount: f64,
         price: f64,
     ) -> Result<Option<String>> {
-        let path = "/trade-api/v2/orders";
+        if self.dry_run {
+            info!("[DRY RUN] Would place Kalshi order: event={} outcome={} amount={} price={}", event_id, outcome, amount, price);
+            return Ok(Some("dry-run".to_string()));
+        }
+        let path = "/orders";
 
         let order_data = serde_json::json!({
             "event_ticker": event_id,
@@ -701,7 +755,7 @@ impl KalshiClient {
     }
 
     pub async fn check_settlement(&self, event_id: &str) -> Result<Option<bool>> {
-        let path = format!("/trade-api/v2/events/{}", event_id);
+        let path = format!("/events/{}", event_id);
         let headers = self.get_auth_headers("GET", &path, "")?;
 
         let response = self
@@ -733,8 +787,99 @@ impl KalshiClient {
         Ok(None)
     }
 
+    pub async fn get_market(&self, ticker: &str) -> Result<Option<serde_json::Value>> {
+        let path = format!("/markets/{}", ticker);
+        let headers = self.get_auth_headers("GET", &path, "")?;
+        let response = self
+            .http_client
+            .get(&format!("{}{}", self.base_url, path))
+            .headers(headers)
+            .send()
+            .await
+            .context("Failed to fetch Kalshi market")?;
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        let data = response.json().await.context("Parse market response")?;
+        Ok(Some(data))
+    }
+
+    pub async fn get_orderbook(&self, ticker: &str) -> Result<Option<serde_json::Value>> {
+        let path = format!("/markets/{}/orderbook", ticker);
+        let headers = self.get_auth_headers("GET", &path, "")?;
+        let response = self
+            .http_client
+            .get(&format!("{}{}", self.base_url, path))
+            .headers(headers)
+            .send()
+            .await
+            .context("Failed to fetch Kalshi orderbook")?;
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        let data = response.json().await.context("Parse orderbook response")?;
+        Ok(Some(data))
+    }
+
+    fn orderbook_to_best_ask(yes_bids: &[serde_json::Value], no_bids: &[serde_json::Value]) -> (f64, f64) {
+        let best_yes_bid_cents = yes_bids
+            .last()
+            .and_then(|a| a.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as f64;
+        let best_no_bid_cents = no_bids
+            .last()
+            .and_then(|a| a.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as f64;
+        let yes_ask = (100.0 - best_no_bid_cents) / 100.0;
+        let no_ask = (100.0 - best_yes_bid_cents) / 100.0;
+        (yes_ask, no_ask)
+    }
+
+    pub async fn get_market_prices(&self, ticker: &str) -> Result<Option<MarketPrices>> {
+        if let Some(data) = self.get_market(ticker).await? {
+            let m = data.get("market").filter(|v| v.is_object());
+            let m = match m {
+                Some(m) => m,
+                None => return Ok(None),
+            };
+            let yes_ask = m["yes_ask"]
+                .as_f64()
+                .or_else(|| m["yes_ask"].as_i64().map(|i| i as f64 / 100.0))
+                .or_else(|| m["yes_ask_dollars"].as_str().and_then(|s| s.parse::<f64>().ok()));
+            let no_ask = m["no_ask"]
+                .as_f64()
+                .or_else(|| m["no_ask"].as_i64().map(|i| i as f64 / 100.0))
+                .or_else(|| m["no_ask_dollars"].as_str().and_then(|s| s.parse::<f64>().ok()));
+            let last = m["last_price"]
+                .as_f64()
+                .or_else(|| m["last_price"].as_i64().map(|i| i as f64 / 100.0))
+                .or_else(|| m["last_price_dollars"].as_str().and_then(|s| s.parse::<f64>().ok()));
+            let yes = yes_ask.or(last).unwrap_or(0.0);
+            let no = no_ask.or_else(|| last.map(|l| 1.0 - l)).unwrap_or(0.0);
+            let prices = MarketPrices::new(yes, no, 0.0)
+                .with_asks(yes_ask.unwrap_or(yes), no_ask.unwrap_or(no), last);
+            return Ok(Some(prices));
+        }
+        if let Some(data) = self.get_orderbook(ticker).await? {
+            let ob = data.get("orderbook").or(data.get("order_book"));
+            if let Some(ob) = ob {
+                let yes_bids = ob["yes"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+                let no_bids = ob["no"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+                let (yes_ask, no_ask) = Self::orderbook_to_best_ask(yes_bids, no_bids);
+                let prices = MarketPrices::new(yes_ask, no_ask, 0.0)
+                    .with_asks(yes_ask, no_ask, Some((yes_ask + no_ask) * 0.5));
+                return Ok(Some(prices));
+            }
+        }
+        Ok(None)
+    }
+
     pub async fn get_balance(&self) -> Result<f64> {
-        let path = "/trade-api/v2/portfolio/balance";
+        let path = "/portfolio/balance";
         let headers = self.get_auth_headers("GET", path, "")?;
 
         let response = self
