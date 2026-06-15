@@ -11,6 +11,8 @@ pub struct Event {
     pub category: Option<String>,
     pub tags: Vec<String>,
     pub slug: Option<String>,
+    pub yes_token_id: Option<String>,
+    pub no_token_id: Option<String>,
 }
 
 impl Event {
@@ -29,6 +31,8 @@ impl Event {
             category: None,
             tags: Vec::new(),
             slug: None,
+            yes_token_id: None,
+            no_token_id: None,
         }
     }
 
@@ -49,6 +53,12 @@ impl Event {
 
     pub fn with_slug(mut self, slug: String) -> Self {
         self.slug = Some(slug);
+        self
+    }
+
+    pub fn with_token_ids(mut self, yes_token_id: String, no_token_id: String) -> Self {
+        self.yes_token_id = Some(yes_token_id);
+        self.no_token_id = Some(no_token_id);
         self
     }
 

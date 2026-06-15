@@ -1,10 +1,9 @@
 use crate::config::KalshiConfig;
 use crate::event::{Event, MarketPrices};
+use crate::polymarket_clob::{self, TokenPair};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -54,6 +53,7 @@ pub struct PolymarketClient {
     wallet_private_key: Option<String>,
     base_url: String,
     price_cache: Arc<PriceCache>,
+    token_cache: Arc<RwLock<std::collections::HashMap<String, TokenPair>>>,
 }
 
 impl PolymarketClient {
@@ -69,9 +69,11 @@ impl PolymarketClient {
         Self {
             http_client,
             polygon_rpc_url: std::env::var("POLYGON_RPC_URL")
-                .unwrap_or_else(|_| "https:
+                .unwrap_or_else(|_| "https://polygon-rpc.com".to_string()),
             wallet_private_key: std::env::var("POLYMARKET_WALLET_PRIVATE_KEY").ok(),
-            base_url: "https:
+            base_url: "https://polymarket.com".to_string(),
+            price_cache: Arc::new(PriceCache::new(60)),
+            token_cache: Arc::new(RwLock::new(std::collections::HashMap::new())),
         }
     }
 
@@ -170,6 +172,8 @@ impl PolymarketClient {
                     category,
                     tags: Vec::new(),
                     slug: None,
+                    yes_token_id: None,
+                    no_token_id: None,
                 });
             }
         }
@@ -246,8 +250,9 @@ impl PolymarketClient {
                 .unwrap_or_default();
 
             let markets = event_data["markets"].as_array();
-            let event_id = markets
-                .and_then(|m| m.first())
+            let first_market = markets.and_then(|m| m.first());
+
+            let event_id = first_market
                 .and_then(|m| m["conditionId"].as_str().or_else(|| m["id"].as_str()))
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| {
@@ -256,6 +261,18 @@ impl PolymarketClient {
                         .unwrap_or_default()
                         .to_string()
                 });
+
+            let token_pair = first_market.and_then(polymarket_clob::parse_clob_token_ids_from_market);
+
+            let (yes_token_id, no_token_id) = token_pair
+                .as_ref()
+                .map(|t| (Some(t.yes_token_id.clone()), Some(t.no_token_id.clone())))
+                .unwrap_or((None, None));
+
+            if let Some(pair) = token_pair {
+                let mut cache = self.token_cache.write().await;
+                cache.insert(event_id.clone(), pair);
+            }
 
             events.push(Event {
                 platform: "polymarket".to_string(),
@@ -266,10 +283,25 @@ impl PolymarketClient {
                 category,
                 tags,
                 slug,
+                yes_token_id,
+                no_token_id,
             });
         }
 
         Ok(events)
+    }
+
+    async fn resolve_tokens(&self, condition_id: &str) -> Result<TokenPair> {
+        if let Some(cached) = self.token_cache.read().await.get(condition_id).cloned() {
+            return Ok(cached);
+        }
+
+        let pair = polymarket_clob::resolve_token_pair(&self.http_client, condition_id).await?;
+        self.token_cache
+            .write()
+            .await
+            .insert(condition_id.to_string(), pair.clone());
+        Ok(pair)
     }
 
     pub async fn fetch_prices(&self, event_id: &str) -> Result<MarketPrices> {
@@ -277,38 +309,14 @@ impl PolymarketClient {
             return Ok(cached);
         }
 
-        let url = format!("https://clob.polymarket.com/clob/v1/book");
-        
-        let response = self
-            .http_client
-            .get(&url)
-            .query(&[("market", event_id)])
-            .send()
-            .await
-            .context("Failed to fetch Polymarket prices")?;
+        let tokens = self.resolve_tokens(event_id).await?;
+        let prices = polymarket_clob::fetch_prices_for_tokens(
+            &self.http_client,
+            &tokens.yes_token_id,
+            &tokens.no_token_id,
+        )
+        .await?;
 
-        let data: serde_json::Value = response
-            .json()
-            .await
-            .context("Failed to parse price response")?;
-
-        let yes_price = data["yes"]
-            .as_object()
-            .and_then(|o| o.get("bestBid"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-
-        let no_price = data["no"]
-            .as_object()
-            .and_then(|o| o.get("bestBid"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-
-        let liquidity = data["liquidity"]
-            .as_f64()
-            .unwrap_or(0.0);
-
-        let prices = MarketPrices::new(yes_price, no_price, liquidity);
         self.price_cache.set(event_id.to_string(), prices.clone()).await;
         Ok(prices)
     }
@@ -320,73 +328,47 @@ impl PolymarketClient {
         amount: f64,
         max_price: f64,
     ) -> Result<Option<String>> {
-        if std::env::var("DRY_RUN").map(|s| s.eq_ignore_ascii_case("true")).unwrap_or(false) {
-            info!("[DRY RUN] Would place Polymarket order: event={} outcome={} amount={} max_price={}", event_id, outcome, amount, max_price);
-            return Ok(Some("dry-run".to_string()));
-        }
-        let private_key = self
-            .wallet_private_key
-            .as_ref()
-            .context("Polymarket wallet private key not configured. Set POLYMARKET_WALLET_PRIVATE_KEY environment variable")?;
-
-        use crate::polymarket_blockchain::PolymarketBlockchain;
-        
-        let blockchain = PolymarketBlockchain::new(&self.polygon_rpc_url)?
-            .with_wallet(private_key)
-            .context("Failed to initialize blockchain client")?;
-
-        match blockchain.place_order_via_blockchain(&event_id, &outcome, amount, max_price).await {
-            Ok(Some(tx_hash)) => {
-                info!("Polymarket order placed via blockchain: {}", tx_hash);
-                Ok(Some(tx_hash))
-            }
-            Ok(None) => {
-                warn!("Polymarket order returned None (may need contract addresses)");
-                Err(anyhow::anyhow!("Order placement failed - contract addresses may be missing"))
-            }
-            Err(e) => {
-                warn!("Blockchain order failed: {:?}. Attempting CLOB API...", e);
-
-                blockchain.place_order_via_clob(&self.http_client, &event_id, &outcome, amount, max_price).await
-            }
-        }
+        let tokens = self.resolve_tokens(&event_id).await.ok();
+        polymarket_clob::place_clob_order(
+            &event_id,
+            &outcome,
+            amount,
+            max_price,
+            tokens.as_ref().map(|t| t.yes_token_id.as_str()),
+            tokens.as_ref().map(|t| t.no_token_id.as_str()),
+        )
+        .await
     }
 
     pub async fn check_settlement(&self, event_id: &str) -> Result<Option<bool>> {
-
-        let query = r#"
-            query GetMarket($id: ID!) {
-                market(id: $id) {
-                    resolved
-                    outcome
-                }
-            }
-        "#;
-
-        let variables = serde_json::json!({
-            "id": event_id
-        });
-
+        let url = format!("{}/markets", polymarket_clob::GAMMA_API_BASE);
         let response = self
             .http_client
-            .post(&format!("{}/graphql", self.base_url))
-            .json(&serde_json::json!({
-                "query": query,
-                "variables": variables
-            }))
+            .get(&url)
+            .query(&[("condition_ids", event_id)])
             .send()
             .await
-            .context("Failed to check Polymarket settlement")?;
+            .context("Failed to check Polymarket settlement via Gamma API")?;
 
-        let data: serde_json::Value = response
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+
+        let data: Vec<serde_json::Value> = response
             .json()
             .await
-            .context("Failed to parse settlement response")?;
+            .context("Failed to parse Gamma settlement response")?;
 
-        if let Some(resolved) = data["data"]["market"]["resolved"].as_bool() {
-            if resolved {
-                if let Some(outcome) = data["data"]["market"]["outcome"].as_str() {
-                    return Ok(Some(outcome == "YES"));
+        if let Some(market) = data.first() {
+            if market["closed"].as_bool() == Some(true) {
+                if let Some(winner) = market["outcomePrices"]
+                    .as_str()
+                    .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+                {
+                    if winner.len() >= 2 {
+                        let yes_won = winner[0].parse::<f64>().unwrap_or(0.0) > 0.9;
+                        return Ok(Some(yes_won));
+                    }
                 }
             }
         }
@@ -585,6 +567,8 @@ impl KalshiClient {
                     category,
                     tags,
                     slug: Some(event_ticker),
+                    yes_token_id: None,
+                    no_token_id: None,
                 });
             }
         }

@@ -9,6 +9,7 @@ pub mod trade_executor;
 pub mod position_tracker;
 pub mod settlement_checker;
 pub mod polymarket_blockchain;
+pub mod polymarket_clob;
 pub mod gabagool_detector;
 pub mod gabagool_executor;
 pub use event::{Event, MarketPrices};

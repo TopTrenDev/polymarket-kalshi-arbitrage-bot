@@ -58,3 +58,6 @@ base64 = "0.21"
 rsa = "0.9"
 sha2 = "0.10"  # For RSA-PSS hashing
 
+# Polymarket CLOB V2 (official SDK)
+polymarket_client_sdk_v2 = { version = "0.5", features = ["clob"] }
+
